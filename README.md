@@ -1,7 +1,7 @@
 # AGEFEM-for-Phonon-BTE
 
 ## Introduction
-This is the repository for the implementation of numerical test in the work "Accurate-Geometry-Embodied Finite Element Method for Phonon Boltzmann Transport Equation". This project is still in iteration.
+This is the repository for the implementation of numerical test in the work _"Accurate-Geometry-Embodied Finite Element Method for Phonon Boltzmann Transport Equation"_. This project is still in iteration.
 
 ## Structure
 
