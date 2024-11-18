@@ -1,0 +1,2 @@
+/usr/bin/ar qc libSpatialMesh.a CMakeFiles/SpatialMesh.dir/SpatialMesh.cpp.o
+/usr/bin/ranlib libSpatialMesh.a

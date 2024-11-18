@@ -1,0 +1,2 @@
+/usr/bin/ar qc libVelocityMesh.a CMakeFiles/VelocityMesh.dir/VelocityMesh.cpp.o
+/usr/bin/ranlib libVelocityMesh.a

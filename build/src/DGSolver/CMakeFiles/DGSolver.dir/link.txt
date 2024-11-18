@@ -1,0 +1,2 @@
+/usr/bin/ar qc libDGSolver.a CMakeFiles/DGSolver.dir/DGSolver.cpp.o
+/usr/bin/ranlib libDGSolver.a

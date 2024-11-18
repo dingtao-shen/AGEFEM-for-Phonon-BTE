@@ -1,0 +1,2 @@
+/usr/bin/ar qc libUtility.a CMakeFiles/Utility.dir/Utility.cpp.o
+/usr/bin/ranlib libUtility.a

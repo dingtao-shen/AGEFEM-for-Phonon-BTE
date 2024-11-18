@@ -1,0 +1,2 @@
+/usr/bin/ar qc libMacroProperty.a CMakeFiles/MacroProperty.dir/MacroProperty.cpp.o
+/usr/bin/ranlib libMacroProperty.a
