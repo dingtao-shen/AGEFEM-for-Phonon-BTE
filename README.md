@@ -23,4 +23,4 @@ This project is still in iteration.
 
 - To run: _(in the root directory)_
 
-    `./AGEDG`
+    `./AGEFEM_Poros`
