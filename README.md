@@ -1,7 +1,7 @@
 # AGEFEM-for-Phonon-BTE
 
 ## Introduction
-This is the repository for the implementation of numerical test in the work _"Accurate-Geometry-Embodied Finite Element Method for Phonon Boltzmann Transport Equation"_. 
+This is the repository for the implementation of numerical test in the work _"Accurate-Geometry-Embodied Finite Element Method for Phonon Boltzmann Transport Equation"_. As a demonstration, the AGEFEM is applied to the poros model here, and the corresponding mesh files are offered.
 
 This project is still in iteration.
 
@@ -11,7 +11,7 @@ This project is still in iteration.
 
 ### Build Requirement
 - Dependency: [Eigen](https://eigen.tuxfamily.org/index.php?title=Main_Page)
-- Compiler: 
+- Compiler: GCC-11
 ### Build & Run
 - To configure: _(in the root directory)_
 
