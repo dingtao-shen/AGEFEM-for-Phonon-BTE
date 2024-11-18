@@ -11,7 +11,7 @@ This project is still in iteration.
 
 ### Build Requirement
 - Dependency: [Eigen](https://eigen.tuxfamily.org/index.php?title=Main_Page)
-- Compiler: GCC-11
+- Compiler: GCC 11.4.0
 ### Build & Run
 - To configure: _(in the root directory)_
 
