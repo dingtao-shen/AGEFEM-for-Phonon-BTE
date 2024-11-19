@@ -10,7 +10,7 @@ This is the repository for the implementation of numerical test in the work _"Ac
     - [OpenMPI](https://www.open-mpi.org/)
 - Compiler: GCC 11.4.0
 ### Build & Run
-Please download the project from the **main** branch
+Please fork or download the project from the **main** branch
 - To configure: _(in the root directory)_
 
     `cmake -S . -B build`
