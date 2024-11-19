@@ -5,7 +5,7 @@ This is the repository for the implementation of numerical test in the work _"Ac
 
 ## Usage
 ### Build Requirement
-- Dependency: [Eigen](https://eigen.tuxfamily.org/index.php?title=Main_Page)
+- Dependency: [Eigen](https://eigen.tuxfamily.org/index.php?title=Main_Page) (You don't have to install it since it has been involved in _'./includes'_)
 - Compiler: GCC 11.4.0
 ### Build & Run
 - To configure: _(in the root directory)_
