@@ -21,5 +21,5 @@ This is the repository for the implementation of numerical test in the work _"Ac
     `./AGEFEM_Poros`
 
 ### Personalization
-- The change of the parameters of the phonon transport model (such as Kndusen numerbs, etc.), boundary conditions, and the parameters of the numerical computation can be conducted in _'src/AGEFEM_Poros.cpp'_;
-- The change of the computation domain (as well as the mesh) requires the modification to the _SpatialMesh_ and _'src/AGEFEM_Poros.cpp'_.
+- The change of the parameters of the phonon transport model (such as Kndusen numerbs, etc.), boundary conditions, and the parameters of the numerical computation can be conducted in _'./src/AGEFEM_Poros.cpp'_;
+- The change of the computation domain (as well as the mesh) requires the modification to the mesh file (in_'./Mesh'_) _SpatialMesh_ and _'./src/AGEFEM_Poros.cpp'_.
