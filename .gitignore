@@ -1,0 +1,6 @@
+build/
+build-*/
+*.dat
+!tests/data/*.dat
+*.out
+RunTime.txt

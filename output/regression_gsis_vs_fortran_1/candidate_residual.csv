@@ -1,0 +1,2 @@
+step,residual,trace_iterations,trace_converged,trace_initial_norm,trace_final_norm
+1,1.0000000000000000e+00,179,1,2.5189019542994822e+00,2.2473556595196087e-10

@@ -1,0 +1,14 @@
+/bin/bash: /home/dtshen/miniconda3/envs/dev/lib/libtinfo.so.6: no version information available (required by /bin/bash)
+Fortran baseline directory: mfem_cpp_refactor/output/full_validation/fortran_cis_tol1e-7
+Fortran residual: mfem_cpp_refactor/output/full_validation/fortran_cis_tol1e-7/fortran_residual.csv
+      590091  1.000031138852971E-007  0.246569140498323     
+      590092  1.000024510290038E-007  0.246569163003976     
+      590093  1.000017881960853E-007  0.246569185509481     
+      590094  1.000011253895120E-007  0.246569208014839     
+      590095  1.000004626054538E-007  0.246569230520048     
+      590096  9.999979974173334E-008  0.246569253025111     
+ Output Conduction
+ **** RUN END, Time =  61480.883 [s] ****
+mfem_cpp_refactor/output/full_validation/fortran_cis_tol1e-7/Conduction_A.dat
+mfem_cpp_refactor/output/full_validation/fortran_cis_tol1e-7/2D_P3_T  200_tR 1.00E-03_tN 1.00E+05_ CIS.dat
+elapsed=61485.96

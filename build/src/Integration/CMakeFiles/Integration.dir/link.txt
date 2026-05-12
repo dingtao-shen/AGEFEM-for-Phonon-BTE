@@ -1,2 +1,0 @@
-/usr/bin/ar qc libIntegration.a CMakeFiles/Integration.dir/Integration.cpp.o
-/usr/bin/ranlib libIntegration.a

@@ -1,0 +1,16 @@
+Callaway MFEM refactor smoke run
+  config: "mfem_cpp_refactor/config/control.cis_tol1e-7.yaml"
+  mesh:   "/home/dtshen/Dev/Project_CG/ACC_2D2V_LinearCallawayModel/A1_Nx11_Ny11.msh"
+  scheme: CIS
+  DG order: 3, element dofs: 10, face dofs: 4
+  tau_c: 0.00099999999
+  mesh summary: dim=2, vertices=121, elements=200, boundary_elements=40, faces=320, interior_faces=280, boundary_faces=40
+  angular directions: 800, sum(weight)=12.56637061435885, 4*pi=12.56637061435917
+  integration total area: 1
+  sweep ordering: 800 directions x 200 elements
+  CIS solve: steps=590096, converged=yes, final_residual=9.99998001503e-08, mass=0.246569253115
+  output field: "mfem_cpp_refactor/output/full_validation/cpp_cis_tol1e-7/candidate_field.dat"
+  output residual: "mfem_cpp_refactor/output/full_validation/cpp_cis_tol1e-7/candidate_residual.csv"
+  output reference: "mfem_cpp_refactor/output/full_validation/cpp_cis_tol1e-7/candidate_reference.dat"
+  output paraview: "mfem_cpp_refactor/output/full_validation/cpp_cis_tol1e-7/candidate_paraview"
+elapsed=62884.86

@@ -1,0 +1,60 @@
+ **** Initial global variables ****
+          Iteration Tolerance:  1.000E-08
+       Maximum iteration step:          5
+ 
+             Iteration Scheme: GSIS
+ 
+            # of polar angles:    20
+        # of azimuthal angles:    40
+ 
+         Degree of polynomial:     3
+ Degree of freedom in element:    10
+    Degree of freedom on face:     4
+ Quadrature points in element:    12
+    Quadrature points on face:    15
+ 
+     Volumetric specific heat:      1.000
+  Magnitude of group velocity:      1.000
+  tau of resistive scattering:      0.001
+     tau of normal scattering: 100000.000
+              conbinating tau:      0.001
+ 
+        File for spatial mesh: ./A1_Nx11_Ny11.msh  
+ 
+     # of boundary conditions:     4
+ 
+ **** Initial BC parameters ****
+   BC_ID                NAME PHY_ID   TYPE       TEMP       XOFF       YOFF
+       1               SWall     11      1  0.000E+00  0.000E+00  0.000E+00
+       2               NWall     12      1  1.000E+00  0.000E+00  0.000E+00
+       3               EWall     13      1  0.000E+00  0.000E+00  0.000E+00
+       4               WWall     14      1  0.000E+00  0.000E+00  0.000E+00
+ 
+ The BC index of periodic master and slave are:     0    0
+ 
+ **** Initial Spatial Mesh ****
+     Total 1D faces:     320
+ 
+     Boundary faces:      40
+     Interior faces:     280
+ 
+ Total 2D triangles:     200
+ 
+ minimun Height:   6.05E-03
+  0.129089413973416       6.052834046956619E-003
+ **** Initial Velocity Mesh ****
+ 
+ Sorting completed
+ **** Initial Basis Function ****
+ **** Initial Velocity Distribution Function ****
+ Initialize PARDISO ...
+ PARDISO LU factorization successful
+ **** Init End ****
+           1   1.00000000000000       7.416460314163686E-002
+           2  0.415737850922316       0.126938037005460     
+           3  0.225278614656043       0.163863108121175     
+           4  0.136159020869251       0.189707228517742     
+           5  8.698079963902858E-002  0.207795909724806     
+ Release PARDISO ...
+ Output Conduction
+ **** RUN END, Time =      0.103 [s] ****

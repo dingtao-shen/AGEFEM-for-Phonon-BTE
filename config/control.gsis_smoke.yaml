@@ -1,0 +1,56 @@
+iteration:
+  tolerance: 1.0e-8
+  max_steps: 1
+
+gsis:
+  enabled: true
+  trace_relative_tolerance: 1.0e-10
+  trace_absolute_tolerance: 1.0e-14
+  trace_max_iterations: 500
+  trace_print_level: -1
+  trace_preconditioner: jacobi
+
+velocity_mesh:
+  polar_angles: 4
+  azimuthal_angles: 8
+
+dg:
+  order: 1
+
+flow:
+  specific_heat: 1.0
+  group_velocity: 1.0
+  tau_r: 1.0e-3
+  tau_n: 1.0e5
+  tau_threshold: 1.0
+
+files:
+  mesh: ../../A1_Nx11_Ny11.msh
+  output_prefix: output_gsis_smoke
+  output_samples: 11
+
+boundary_conditions:
+  - name: SWall
+    physical_id: 11
+    type: thermalizing
+    temperature: 0.0
+    x_offset: 0.0
+    y_offset: 0.0
+  - name: NWall
+    physical_id: 12
+    type: thermalizing
+    temperature: 1.0
+    x_offset: 0.0
+    y_offset: 0.0
+  - name: EWall
+    physical_id: 13
+    type: thermalizing
+    temperature: 0.0
+    x_offset: 0.0
+    y_offset: 0.0
+  - name: WWall
+    physical_id: 14
+    type: thermalizing
+    temperature: 0.0
+    x_offset: 0.0
+    y_offset: 0.0
