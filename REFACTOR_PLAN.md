@@ -258,9 +258,16 @@ Implementation plan:
 
 Solver options:
 
-- Recommended default path: use a portable MFEM iterative solver first, starting with `mfem::GMRESSolver` and a simple ILU/block preconditioner for the unsymmetric trace system. This avoids making MKL PARDISO a hard dependency and fits the detected local MFEM installation.
-- Optional high-performance path: link to MKL PARDISO or rebuild MFEM with SuiteSparse/SuperLU if iterative convergence is poor or direct-solver parity is needed for a specific benchmark.
-- MPI path: use `ParMesh`, `ParFiniteElementSpace`, and `HypreParMatrix` only after serial validation.
+- Portable iterative path: `mfem::GMRESSolver` with optional Jacobi
+  preconditioning remains available for the unsymmetric trace system.
+- Validated serial benchmark path: Eigen/SparseLU can be selected with
+  `trace_preconditioner: direct`, reusing the cached trace matrix factorization
+  across GSIS iterations.
+- Optional future high-performance path: link to MKL PARDISO or rebuild MFEM
+  with SuiteSparse/SuperLU if direct-solver parity or larger sparse solves are
+  needed.
+- MPI path: use `ParMesh`, `ParFiniteElementSpace`, and `HypreParMatrix` only
+  after serial validation.
 
 ### 6.7 Output
 
@@ -312,13 +319,6 @@ mfem_cpp_refactor/
     output_manager.cpp
   tests/
     unit/
-    regression/
-    data/
-  scripts/
-    compare_tecplot.py
-    run_regression.sh
-  docs/
-    algorithm_notes.md
 ```
 
 The first implementation commit should add only build/config scaffolding and unit tests. Solver code should be added module by module with regression checkpoints.
@@ -335,33 +335,18 @@ the thermalizing-wall path:
 - CIS iteration, residual calculation, Tecplot output, Fourier reference output,
   and MFEM ParaView output are wired into `callaway_mfem`.
 - GSIS acceleration now includes high-order source moments, local macroscopic
-  matrix factors, trace coupling tensors, sparse trace assembly, GMRES trace
-  solve with configurable `none`/`jacobi` preconditioning, local reconstruction,
-  VDF correction, and a `GsisIterationDriver` selected by `gsis.enabled: true`.
+  matrix factors, trace coupling tensors, cached sparse trace assembly, GMRES
+  or Eigen/SparseLU trace solve, local reconstruction, VDF correction, and a
+  `GsisIterationDriver` selected by `gsis.enabled: true`.
 - `config/control.gsis_smoke.yaml` provides a lightweight one-step GSIS run for
   executable-level regression testing.
-- `scripts/compare_tecplot.py` and `scripts/run_regression.sh` provide the
-  field-comparison path for Fortran baseline files, and `callaway_mfem` supports
-  `--output-prefix` for reproducible regression output locations.
-- `scripts/convert_control_in.py` converts the legacy Fortran namelist input
-  into the C++ YAML format, including boundary-condition arrays and default GSIS
-  trace-solver controls.
-- `scripts/run_fortran_baseline.sh` prepares an isolated Fortran baseline work
-  directory, applies `SCHEME`/`MAX_STEPS` overrides to the copied `control.in`,
-  checks MKL runtime dependencies, and captures `DGACC` output logs.
-- The existing `DGACC` binary was run successfully through the Conda MKL runtime
-  using isolated `.so.1` compatibility symlinks. One-step CIS and one-step GSIS
-  field regressions match the Fortran Tecplot output to its six-digit output
-  precision. A GSIS parity fix was required: element-face basis projections must
-  use the global face orientation because trace unknowns are global face dofs.
-- Five-step full-resolution CIS and GSIS regressions now match Fortran for final
-  Tecplot fields, residual histories, and mass histories. Details and
-  reproduction commands are recorded in `docs/regression_status.md`.
+- The migration-time Fortran/C++ comparison scripts, stored baseline outputs,
+  and comparison data have been removed from the active tree. `callaway_mfem`
+  still supports `--output-prefix` and `--write-output` for reproducible C++
+  numerical experiments.
 
-The remaining numerical work is full-convergence validation against Fortran
-CIS/GSIS baseline output, stronger preconditioning for the trace solve, and
-implementation of the non-thermalizing and periodic boundary-condition kernels
-behind the existing interfaces.
+The remaining numerical work is broader boundary-condition support and future
+parallelization beyond the validated serial/OpenMP path.
 
 ## 8. Implementation Phases
 

@@ -1,6 +1,10 @@
 build/
 build-*/
+output/
+__pycache__/
+*.pyc
 *.dat
-!tests/data/*.dat
+!validation/**
 *.out
 RunTime.txt
+reference/

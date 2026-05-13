@@ -1,0 +1,1 @@
+Command '['/home/dtshen/Dev/AGEFEM-for-Phonon-BTE/build-openmp/callaway_mfem', '--config', '/home/dtshen/Dev/AGEFEM-for-Phonon-BTE/validation/configs/knr1_knn1_gsis.yaml', '--solve', '--write-output']' timed out after 3600 seconds

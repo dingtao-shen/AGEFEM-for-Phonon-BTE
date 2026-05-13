@@ -9,6 +9,7 @@ gsis:
   trace_max_iterations: 1000
   trace_print_level: -1
   trace_preconditioner: jacobi
+  boundary_heat_flux_from_vdf: false
 
 velocity_mesh:
   polar_angles: 20
@@ -25,7 +26,7 @@ flow:
   tau_threshold: 1.0
 
 files:
-  mesh: ../../A1_Nx11_Ny11.msh
+  mesh: ../reference/FortranCodes/A1_Nx11_Ny11.msh
   output_prefix: output
   output_samples: 109
 

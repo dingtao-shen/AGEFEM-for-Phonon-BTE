@@ -1,0 +1,23 @@
+{
+  "cache_local_lu": true,
+  "case_id": "knr1e-1_knn1e5",
+  "converged": true,
+  "expected_steps_paper": 26,
+  "field": "validation/results/knr1e-1_knn1e5/gsis/gsis_field.dat",
+  "final_residual": 9.87993275069e-08,
+  "knn": 100000.0,
+  "knr": 0.1,
+  "mass": 0.249970642416,
+  "notes": "",
+  "nphi": 80,
+  "ntheta": 40,
+  "paraview": "validation/results/knr1e-1_knn1e5/gsis/gsis_paraview",
+  "reference": "validation/results/knr1e-1_knn1e5/gsis/gsis_reference.dat",
+  "residual": "validation/results/knr1e-1_knn1e5/gsis/gsis_residual.csv",
+  "returncode": 0,
+  "scheme": "gsis",
+  "stdout": "validation/results/knr1e-1_knn1e5/gsis/stdout.log",
+  "steps": 26,
+  "tau_threshold": 1.0,
+  "wall_time_s": 83.30080459800956
+}

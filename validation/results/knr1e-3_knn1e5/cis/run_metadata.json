@@ -1,0 +1,16 @@
+{
+  "case_id": "knr1e-3_knn1e5",
+  "converged": false,
+  "expected_steps_paper": null,
+  "final_residual": null,
+  "knn": 100000.0,
+  "knr": 0.001,
+  "notes": "Timed out after 3600s. Fourier-limit case; paper reports CIS > 1e6 steps.",
+  "nphi": 40,
+  "ntheta": 20,
+  "returncode": "timeout",
+  "scheme": "cis",
+  "steps": null,
+  "tau_threshold": 1.0,
+  "wall_time_s": 3600
+}

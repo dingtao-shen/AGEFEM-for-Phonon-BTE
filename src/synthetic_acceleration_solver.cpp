@@ -8,8 +8,180 @@
 #include <stdexcept>
 #include <unordered_map>
 
+#ifndef CALLAWAY_HAS_EIGEN
+#define CALLAWAY_HAS_EIGEN 0
+#endif
+
+#if CALLAWAY_HAS_EIGEN
+#include <Eigen/Sparse>
+#include <Eigen/SparseLU>
+#endif
+
 namespace callaway
 {
+
+#if CALLAWAY_HAS_EIGEN
+struct TraceDirectSolverCache
+{
+   using EigenSparseMatrix = Eigen::SparseMatrix<double, Eigen::ColMajor, int>;
+   using EigenSolver = Eigen::SparseLU<EigenSparseMatrix, Eigen::COLAMDOrdering<int>>;
+
+   EigenSparseMatrix matrix;
+   EigenSolver solver;
+   int size = 0;
+
+   void Factorize(const mfem::SparseMatrix &source)
+   {
+      if (source.Height() != source.Width())
+      {
+         throw std::runtime_error("GSIS direct trace solver requires a square matrix.");
+      }
+
+      size = source.Height();
+      std::vector<Eigen::Triplet<double, int>> triplets;
+      triplets.reserve(static_cast<std::size_t>(source.NumNonZeroElems()));
+
+      const int *rows = source.GetI();
+      const int *cols = source.GetJ();
+      const double *values = source.GetData();
+      for (int row = 0; row < source.Height(); ++row)
+      {
+         for (int offset = rows[row]; offset < rows[row + 1]; ++offset)
+         {
+            triplets.emplace_back(row, cols[offset], values[offset]);
+         }
+      }
+
+      matrix.resize(source.Height(), source.Width());
+      matrix.setFromTriplets(triplets.begin(), triplets.end());
+      matrix.makeCompressed();
+
+      solver.analyzePattern(matrix);
+      solver.factorize(matrix);
+      if (solver.info() != Eigen::Success)
+      {
+         throw std::runtime_error("Eigen SparseLU factorization failed for the GSIS trace matrix.");
+      }
+   }
+
+   void Solve(const mfem::Vector &rhs, mfem::Vector &trace) const
+   {
+      if (rhs.Size() != size)
+      {
+         throw std::runtime_error("GSIS trace RHS size does not match the direct solver factorization.");
+      }
+
+      Eigen::VectorXd eigen_rhs(size);
+      for (int i = 0; i < size; ++i)
+      {
+         eigen_rhs(i) = rhs(i);
+      }
+
+      const Eigen::VectorXd eigen_trace = solver.solve(eigen_rhs);
+      if (solver.info() != Eigen::Success)
+      {
+         throw std::runtime_error("Eigen SparseLU solve failed for the GSIS trace matrix.");
+      }
+
+      trace.SetSize(size);
+      for (int i = 0; i < size; ++i)
+      {
+         trace(i) = eigen_trace(i);
+      }
+   }
+};
+#else
+struct TraceDirectSolverCache {};
+#endif
+
+double VectorNorm(const mfem::Vector &vector)
+{
+   double sum = 0.0;
+   for (int i = 0; i < vector.Size(); ++i)
+   {
+      sum += vector(i) * vector(i);
+   }
+   return std::sqrt(sum);
+}
+
+double ResidualNorm(const mfem::SparseMatrix &matrix,
+                    const mfem::Vector &rhs,
+                    const mfem::Vector &trace)
+{
+   mfem::Vector product(rhs.Size());
+   matrix.Mult(trace, product);
+   double sum = 0.0;
+   for (int i = 0; i < rhs.Size(); ++i)
+   {
+      const double residual = product(i) - rhs(i);
+      sum += residual * residual;
+   }
+   return std::sqrt(sum);
+}
+
+TraceSolveResult SolveTraceMatrixWithGmres(const mfem::SparseMatrix &matrix,
+                                           const mfem::Vector &rhs,
+                                           double relative_tolerance,
+                                           double absolute_tolerance,
+                                           int max_iterations,
+                                           int print_level,
+                                           TracePreconditionerType preconditioner)
+{
+   if (relative_tolerance <= 0.0 || absolute_tolerance < 0.0 || max_iterations <= 0)
+   {
+      throw std::runtime_error("Invalid GMRES settings for GSIS trace solve.");
+   }
+
+   TraceSolveResult result;
+   result.trace.SetSize(rhs.Size());
+   result.trace = 0.0;
+
+   mfem::GMRESSolver gmres;
+   std::unique_ptr<mfem::Solver> preconditioner_solver;
+   if (preconditioner == TracePreconditionerType::Jacobi)
+   {
+      preconditioner_solver = std::make_unique<mfem::DSmoother>(matrix);
+      gmres.SetPreconditioner(*preconditioner_solver);
+   }
+   gmres.SetOperator(matrix);
+   gmres.SetRelTol(relative_tolerance);
+   gmres.SetAbsTol(absolute_tolerance);
+   gmres.SetMaxIter(max_iterations);
+   gmres.SetKDim(std::min(50, std::max(1, max_iterations)));
+   gmres.SetPrintLevel(print_level);
+   gmres.Mult(rhs, result.trace);
+
+   result.iterations = gmres.GetNumIterations();
+   result.converged = gmres.GetConverged();
+   result.initial_norm = gmres.GetInitialNorm();
+   result.final_norm = gmres.GetFinalNorm();
+   return result;
+}
+
+TraceSolveResult SolveTraceMatrixWithDirect(const mfem::SparseMatrix &matrix,
+                                            const mfem::Vector &rhs,
+                                            TraceDirectSolverCache &solver,
+                                            double relative_tolerance,
+                                            double absolute_tolerance)
+{
+#if CALLAWAY_HAS_EIGEN
+   TraceSolveResult result;
+   result.initial_norm = VectorNorm(rhs);
+   solver.Solve(rhs, result.trace);
+   result.final_norm = ResidualNorm(matrix, rhs, result.trace);
+   result.iterations = 1;
+   result.converged =
+      result.final_norm <= std::max(absolute_tolerance, relative_tolerance * result.initial_norm);
+   return result;
+#else
+   static_cast<void>(matrix);
+   static_cast<void>(rhs);
+   static_cast<void>(solver);
+   static_cast<void>(relative_tolerance);
+   static_cast<void>(absolute_tolerance);
+   throw std::runtime_error("GSIS direct trace solver requires Eigen3 at build time.");
+#endif
+}
 
 MacroState::MacroState(int elements, int dofs)
    : elements_(elements),
@@ -54,10 +226,12 @@ int MacroState::Index(MacroComponent component, int element, int dof) const
 
 SyntheticAccelerationSolver::SyntheticAccelerationSolver(const IntegrationCache &integration,
                                                          const AngularQuadrature &quadrature,
-                                                         FlowSettings flow)
+                                                         FlowSettings flow,
+                                                         bool boundary_heat_flux_from_vdf)
    : integration_(integration),
      quadrature_(quadrature),
-     flow_(flow)
+     flow_(flow),
+     boundary_heat_flux_from_vdf_(boundary_heat_flux_from_vdf)
 {
    if (flow_.specific_heat <= 0.0 || flow_.group_velocity <= 0.0 ||
        flow_.tau_r <= 0.0 || flow_.tau_n <= 0.0)
@@ -66,6 +240,8 @@ SyntheticAccelerationSolver::SyntheticAccelerationSolver(const IntegrationCache 
    }
    BuildLocalMacroLuCache();
 }
+
+SyntheticAccelerationSolver::~SyntheticAccelerationSolver() = default;
 
 int SyntheticAccelerationSolver::GlobalTraceDof(int face, int trace_component, int face_dof) const
 {
@@ -203,6 +379,8 @@ void SyntheticAccelerationSolver::BuildTraceCoupling(
    }
 
    trace_coupling_ready_ = true;
+   BuildTraceMatrix(mesh);
+   trace_direct_solver_cache_.reset();
 }
 
 TraceSystem SyntheticAccelerationSolver::BuildTraceSystem(const MeshAdapter &mesh,
@@ -213,57 +391,58 @@ TraceSystem SyntheticAccelerationSolver::BuildTraceSystem(const MeshAdapter &mes
    {
       throw std::runtime_error("GSIS trace coupling must be built before assembling the trace system.");
    }
+   if (!trace_matrix_cache_)
+   {
+      throw std::runtime_error("GSIS trace matrix cache is not available.");
+   }
+
+   TraceSystem system;
+   system.matrix = std::make_unique<mfem::SparseMatrix>(*trace_matrix_cache_);
+   system.rhs = BuildTraceRhs(mesh, source, distribution);
+   return system;
+}
+
+mfem::Vector SyntheticAccelerationSolver::BuildTraceRhs(const MeshAdapter &mesh,
+                                                        const MacroState &source,
+                                                        const Distribution *distribution) const
+{
+   if (!trace_coupling_ready_)
+   {
+      throw std::runtime_error("GSIS trace coupling must be built before assembling the trace RHS.");
+   }
+   if (!trace_matrix_cache_)
+   {
+      throw std::runtime_error("GSIS trace matrix cache is not available.");
+   }
    if (source.elements() != integration_.element_count() ||
        source.dofs() != integration_.dofs())
    {
       throw std::runtime_error("Macro source shape does not match the GSIS trace system.");
    }
 
-   const int trace_unknowns = trace_unknowns_per_face();
-   const int system_size = static_cast<int>(mesh.faces().size()) * trace_unknowns;
-   TraceSystem system;
-   system.matrix = std::make_unique<mfem::SparseMatrix>(system_size);
-   system.rhs.SetSize(system_size);
-   system.rhs = 0.0;
+   const int system_size = trace_matrix_cache_->Height();
+   mfem::Vector rhs(system_size);
+   rhs = 0.0;
 
    for (const FaceData &face : mesh.faces())
    {
-      for (int component = 0; component < TraceComponentCount; ++component)
-      {
-         for (int row = 0; row < integration_.face_dofs(); ++row)
-         {
-            const int global_row = GlobalTraceDof(face.index, component, row);
-            for (int col = 0; col < integration_.face_dofs(); ++col)
-            {
-               const double value = integration_.FaceMass(face.index, row, col);
-               if (std::abs(value) > 1.0e-30)
-               {
-                  system.matrix->Add(global_row, GlobalTraceDof(face.index, component, col), value);
-               }
-            }
-         }
-      }
-
       if (face.element1 >= 0)
       {
-         AddTraceElementContribution(mesh, *system.matrix, face.index, face.element1, face.local_face1);
-         AddTraceSourceContribution(system.rhs, face.index, face.element1, face.local_face1, source);
+         AddTraceSourceContribution(rhs, face.index, face.element1, face.local_face1, source);
       }
       if (face.element2 >= 0)
       {
-         AddTraceElementContribution(mesh, *system.matrix, face.index, face.element2, face.local_face2);
-         AddTraceSourceContribution(system.rhs, face.index, face.element2, face.local_face2, source);
+         AddTraceSourceContribution(rhs, face.index, face.element2, face.local_face2, source);
       }
       if (distribution && face.is_boundary())
       {
          const int element = face.element1 >= 0 ? face.element1 : face.element2;
          const int local_face = face.element1 >= 0 ? face.local_face1 : face.local_face2;
-         ApplyThermalBoundaryTraceRhs(system.rhs, face.index, element, local_face, *distribution);
+         ApplyThermalBoundaryTraceRhs(rhs, face.index, element, local_face, *distribution);
       }
    }
 
-   system.matrix->Finalize(1);
-   return system;
+   return rhs;
 }
 
 TraceSolveResult SyntheticAccelerationSolver::SolveTraceSystem(const TraceSystem &system,
@@ -286,30 +465,75 @@ TraceSolveResult SyntheticAccelerationSolver::SolveTraceSystem(const TraceSystem
       throw std::runtime_error("Invalid GMRES settings for GSIS trace solve.");
    }
 
-   TraceSolveResult result;
-   result.trace.SetSize(system.rhs.Size());
-   result.trace = 0.0;
-
-   mfem::GMRESSolver gmres;
-   std::unique_ptr<mfem::Solver> preconditioner_solver;
-   if (preconditioner == TracePreconditionerType::Jacobi)
+   if (preconditioner == TracePreconditionerType::Direct)
    {
-      preconditioner_solver = std::make_unique<mfem::DSmoother>(*system.matrix);
-      gmres.SetPreconditioner(*preconditioner_solver);
+#if CALLAWAY_HAS_EIGEN
+      TraceDirectSolverCache solver;
+      solver.Factorize(*system.matrix);
+      return SolveTraceMatrixWithDirect(*system.matrix,
+                                        system.rhs,
+                                        solver,
+                                        relative_tolerance,
+                                        absolute_tolerance);
+#else
+      throw std::runtime_error("GSIS direct trace solver requires Eigen3 at build time.");
+#endif
    }
-   gmres.SetOperator(*system.matrix);
-   gmres.SetRelTol(relative_tolerance);
-   gmres.SetAbsTol(absolute_tolerance);
-   gmres.SetMaxIter(max_iterations);
-   gmres.SetKDim(std::min(50, std::max(1, max_iterations)));
-   gmres.SetPrintLevel(print_level);
-   gmres.Mult(system.rhs, result.trace);
 
-   result.iterations = gmres.GetNumIterations();
-   result.converged = gmres.GetConverged();
-   result.initial_norm = gmres.GetInitialNorm();
-   result.final_norm = gmres.GetFinalNorm();
-   return result;
+   return SolveTraceMatrixWithGmres(*system.matrix,
+                                    system.rhs,
+                                    relative_tolerance,
+                                    absolute_tolerance,
+                                    max_iterations,
+                                    print_level,
+                                    preconditioner);
+}
+
+TraceSolveResult SyntheticAccelerationSolver::SolveTraceRhs(const mfem::Vector &rhs,
+                                                            double relative_tolerance,
+                                                            double absolute_tolerance,
+                                                            int max_iterations,
+                                                            int print_level,
+                                                            TracePreconditionerType preconditioner) const
+{
+   if (!trace_matrix_cache_)
+   {
+      throw std::runtime_error("GSIS trace matrix cache is not available.");
+   }
+   if (rhs.Size() != trace_matrix_cache_->Height())
+   {
+      throw std::runtime_error("GSIS trace matrix and RHS dimensions differ.");
+   }
+   if (relative_tolerance <= 0.0 || absolute_tolerance < 0.0 || max_iterations <= 0)
+   {
+      throw std::runtime_error("Invalid GMRES settings for GSIS trace solve.");
+   }
+
+   if (preconditioner == TracePreconditionerType::Direct)
+   {
+#if CALLAWAY_HAS_EIGEN
+      if (!trace_direct_solver_cache_)
+      {
+         trace_direct_solver_cache_ = std::make_unique<TraceDirectSolverCache>();
+         trace_direct_solver_cache_->Factorize(*trace_matrix_cache_);
+      }
+      return SolveTraceMatrixWithDirect(*trace_matrix_cache_,
+                                        rhs,
+                                        *trace_direct_solver_cache_,
+                                        relative_tolerance,
+                                        absolute_tolerance);
+#else
+      throw std::runtime_error("GSIS direct trace solver requires Eigen3 at build time.");
+#endif
+   }
+
+   return SolveTraceMatrixWithGmres(*trace_matrix_cache_,
+                                    rhs,
+                                    relative_tolerance,
+                                    absolute_tolerance,
+                                    max_iterations,
+                                    print_level,
+                                    preconditioner);
 }
 
 MacroState SyntheticAccelerationSolver::ReconstructMacroState(const MeshAdapter &mesh,
@@ -734,7 +958,7 @@ void SyntheticAccelerationSolver::AssembleTraceProjection(
             set_value(2, face_row, MacroComponent::Lyy, tri_col,
                       -2.0 * ny * bb / (3.0 * stabilization_[2]));
          }
-         else if (boundary_type == BoundaryType::Thermalizing)
+         else if (boundary_type == BoundaryType::Thermalizing && !boundary_heat_flux_from_vdf_)
          {
             set_value(1, face_row, MacroComponent::HeatFluxX, tri_col, bb);
             set_value(1, face_row, MacroComponent::Lxx, tri_col,
@@ -850,17 +1074,28 @@ void SyntheticAccelerationSolver::ApplyThermalBoundaryTraceRhs(
    for (int face_dof = 0; face_dof < integration_.face_dofs(); ++face_dof)
    {
       double temperature = 0.0;
+      double heat_flux_x = 0.0;
+      double heat_flux_y = 0.0;
       for (int angle = 0; angle < quadrature_.size(); ++angle)
       {
+         const Direction &direction = quadrature_[angle];
          for (int tri_dof = 0; tri_dof < integration_.dofs(); ++tri_dof)
          {
-            temperature +=
+            const double projected =
                distribution(angle, source_element, tri_dof) *
                integration_.ElementFaceBasisMass(source_element, source_local_face, tri_dof, face_dof) *
-               quadrature_[angle].weight;
+               direction.weight;
+            temperature += projected;
+            heat_flux_x += direction.cx * projected;
+            heat_flux_y += direction.cy * projected;
          }
       }
       rhs(GlobalTraceDof(row_face, 0, face_dof)) = temperature / flow_.specific_heat;
+      if (boundary_heat_flux_from_vdf_)
+      {
+         rhs(GlobalTraceDof(row_face, 1, face_dof)) = heat_flux_x;
+         rhs(GlobalTraceDof(row_face, 2, face_dof)) = heat_flux_y;
+      }
    }
 }
 
@@ -882,6 +1117,58 @@ void SyntheticAccelerationSolver::BuildLocalMacroLuCache()
                                local_pivot_cache_.data() + ElementPivotOffset(element),
                                unknowns);
    }
+}
+
+void SyntheticAccelerationSolver::BuildTraceMatrix(const MeshAdapter &mesh)
+{
+   if (!trace_coupling_ready_)
+   {
+      throw std::runtime_error("GSIS trace coupling must be built before assembling the trace matrix.");
+   }
+
+   const int trace_unknowns = trace_unknowns_per_face();
+   const int system_size = static_cast<int>(mesh.faces().size()) * trace_unknowns;
+   trace_matrix_cache_ = std::make_unique<mfem::SparseMatrix>(system_size);
+
+   for (const FaceData &face : mesh.faces())
+   {
+      for (int component = 0; component < TraceComponentCount; ++component)
+      {
+         for (int row = 0; row < integration_.face_dofs(); ++row)
+         {
+            const int global_row = GlobalTraceDof(face.index, component, row);
+            for (int col = 0; col < integration_.face_dofs(); ++col)
+            {
+               const double value = integration_.FaceMass(face.index, row, col);
+               if (std::abs(value) > 1.0e-30)
+               {
+                  trace_matrix_cache_->Add(global_row,
+                                           GlobalTraceDof(face.index, component, col),
+                                           value);
+               }
+            }
+         }
+      }
+
+      if (face.element1 >= 0)
+      {
+         AddTraceElementContribution(mesh,
+                                     *trace_matrix_cache_,
+                                     face.index,
+                                     face.element1,
+                                     face.local_face1);
+      }
+      if (face.element2 >= 0)
+      {
+         AddTraceElementContribution(mesh,
+                                     *trace_matrix_cache_,
+                                     face.index,
+                                     face.element2,
+                                     face.local_face2);
+      }
+   }
+
+   trace_matrix_cache_->Finalize(1);
 }
 
 std::size_t SyntheticAccelerationSolver::ElementMatrixOffset(int element) const

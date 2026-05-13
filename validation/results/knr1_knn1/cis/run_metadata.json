@@ -1,0 +1,23 @@
+{
+  "cache_local_lu": true,
+  "case_id": "knr1_knn1",
+  "converged": true,
+  "expected_steps_paper": 29,
+  "field": "validation/results/knr1_knn1/cis/cis_field.dat",
+  "final_residual": 9.29247757378e-08,
+  "knn": 1.0,
+  "knr": 1.0,
+  "mass": 0.249984912114,
+  "notes": "",
+  "nphi": 160,
+  "ntheta": 80,
+  "paraview": "validation/results/knr1_knn1/cis/cis_paraview",
+  "reference": "validation/results/knr1_knn1/cis/cis_reference.dat",
+  "residual": "validation/results/knr1_knn1/cis/cis_residual.csv",
+  "returncode": 0,
+  "scheme": "cis",
+  "stdout": "validation/results/knr1_knn1/cis/stdout.log",
+  "steps": 29,
+  "tau_threshold": 1.0,
+  "wall_time_s": 82.38133148700581
+}

@@ -30,6 +30,8 @@ enum class MacroComponent
 constexpr int MacroComponentCount = 7;
 constexpr int TraceComponentCount = 3;
 
+struct TraceDirectSolverCache;
+
 class MacroState
 {
 public:
@@ -74,7 +76,9 @@ class SyntheticAccelerationSolver
 public:
    SyntheticAccelerationSolver(const IntegrationCache &integration,
                                const AngularQuadrature &quadrature,
-                               FlowSettings flow);
+                               FlowSettings flow,
+                               bool boundary_heat_flux_from_vdf = false);
+   ~SyntheticAccelerationSolver();
 
    int local_unknowns() const { return MacroComponentCount * integration_.dofs(); }
    int trace_unknowns_per_face() const { return TraceComponentCount * integration_.face_dofs(); }
@@ -87,6 +91,9 @@ public:
    TraceSystem BuildTraceSystem(const MeshAdapter &mesh,
                                 const MacroState &source,
                                 const Distribution *distribution = nullptr) const;
+   mfem::Vector BuildTraceRhs(const MeshAdapter &mesh,
+                              const MacroState &source,
+                              const Distribution *distribution = nullptr) const;
    TraceSolveResult SolveTraceSystem(const TraceSystem &system,
                                      double relative_tolerance = 1.0e-10,
                                      double absolute_tolerance = 1.0e-14,
@@ -94,6 +101,13 @@ public:
                                      int print_level = -1,
                                      TracePreconditionerType preconditioner =
                                         TracePreconditionerType::None) const;
+   TraceSolveResult SolveTraceRhs(const mfem::Vector &rhs,
+                                  double relative_tolerance = 1.0e-10,
+                                  double absolute_tolerance = 1.0e-14,
+                                  int max_iterations = 500,
+                                  int print_level = -1,
+                                  TracePreconditionerType preconditioner =
+                                     TracePreconditionerType::None) const;
    MacroState ReconstructMacroState(const MeshAdapter &mesh,
                                     const MacroState &source,
                                     const mfem::Vector &trace) const;
@@ -120,15 +134,19 @@ private:
    const IntegrationCache &integration_;
    const AngularQuadrature &quadrature_;
    FlowSettings flow_;
+   bool boundary_heat_flux_from_vdf_ = false;
    std::array<double, TraceComponentCount> stabilization_{{1.0, 1.0, 1.0}};
    std::vector<double> local_lu_cache_;
    std::vector<int> local_pivot_cache_;
    std::vector<double> trace_response_;
    std::vector<double> trace_projection_;
+   std::unique_ptr<mfem::SparseMatrix> trace_matrix_cache_;
+   mutable std::unique_ptr<TraceDirectSolverCache> trace_direct_solver_cache_;
    bool trace_coupling_ready_ = false;
 
    void AssembleLocalMacroMatrix(int element, std::vector<double> &matrix) const;
    void BuildLocalMacroLuCache();
+   void BuildTraceMatrix(const MeshAdapter &mesh);
    void AssembleLocalTraceMatrix(int element, int local_face, std::vector<double> &matrix) const;
    void AssembleTraceProjection(const MeshAdapter &mesh,
                                 const std::vector<BoundaryCondition> &boundary_conditions,

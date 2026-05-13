@@ -18,7 +18,8 @@ struct IterationSettings
 enum class TracePreconditionerType
 {
    None,
-   Jacobi
+   Jacobi,
+   Direct
 };
 
 struct SyntheticAccelerationSettings
@@ -29,6 +30,7 @@ struct SyntheticAccelerationSettings
    int trace_max_iterations = 500;
    int trace_print_level = -1;
    TracePreconditionerType trace_preconditioner = TracePreconditionerType::None;
+   bool boundary_heat_flux_from_vdf = false;
 };
 
 struct VelocityMeshSettings

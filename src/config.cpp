@@ -201,6 +201,7 @@ const char *ToString(TracePreconditionerType type)
    {
       case TracePreconditionerType::None: return "none";
       case TracePreconditionerType::Jacobi: return "jacobi";
+      case TracePreconditionerType::Direct: return "direct";
    }
    return "unknown";
 }
@@ -215,6 +216,10 @@ TracePreconditionerType TracePreconditionerTypeFromString(const std::string &val
    if (lower == "jacobi" || lower == "diagonal")
    {
       return TracePreconditionerType::Jacobi;
+   }
+   if (lower == "direct" || lower == "sparse_direct" || lower == "eigen")
+   {
+      return TracePreconditionerType::Direct;
    }
    throw std::runtime_error("Unknown GSIS trace preconditioner type: " + value);
 }
@@ -353,6 +358,7 @@ Config LoadConfig(const std::filesystem::path &path)
             else if (key == "trace_max_iterations") { config.gsis.trace_max_iterations = ToInt(value, key); }
             else if (key == "trace_print_level") { config.gsis.trace_print_level = ToInt(value, key); }
             else if (key == "trace_preconditioner") { config.gsis.trace_preconditioner = TracePreconditionerTypeFromString(value); }
+            else if (key == "boundary_heat_flux_from_vdf") { config.gsis.boundary_heat_flux_from_vdf = ToBool(value, key); }
             else { throw std::runtime_error("Unknown gsis key: " + key); }
             break;
          case Section::VelocityMesh:

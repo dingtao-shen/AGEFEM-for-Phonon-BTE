@@ -12,7 +12,10 @@ option(CALLAWAY_USE_MKL_PARDISO "Enable the optional MKL PARDISO backend." OFF)
 option(CALLAWAY_ENABLE_STRICT_FORTRAN_BASIS "Enable strict Fortran-basis compatibility kernels." ON)
 
 find_package(MFEM CONFIG REQUIRED)
-find_package(Python3 COMPONENTS Interpreter REQUIRED)
+find_package(Eigen3 QUIET)
+
+set(CALLAWAY_REFERENCE_MESH
+    ${CMAKE_CURRENT_SOURCE_DIR}/reference/FortranCodes/A1_Nx11_Ny11.msh)
 
 add_library(callaway_core
   src/angular_quadrature.cpp
@@ -44,7 +47,12 @@ target_compile_definitions(callaway_core
   PUBLIC
     CALLAWAY_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
     CALLAWAY_STRICT_FORTRAN_BASIS=$<BOOL:${CALLAWAY_ENABLE_STRICT_FORTRAN_BASIS}>
+    CALLAWAY_HAS_EIGEN=$<BOOL:${Eigen3_FOUND}>
 )
+
+if(Eigen3_FOUND)
+  target_link_libraries(callaway_core PUBLIC Eigen3::Eigen)
+endif()
 
 if(CALLAWAY_USE_OPENMP)
   find_package(OpenMP REQUIRED)
@@ -84,7 +92,7 @@ add_test(
   NAME config_quadrature_mesh_smoke
   COMMAND test_config_quadrature
           ${CMAKE_CURRENT_SOURCE_DIR}/config/control.example.yaml
-          ${CMAKE_CURRENT_SOURCE_DIR}/../A1_Nx11_Ny11.msh
+          ${CALLAWAY_REFERENCE_MESH}
 )
 
 add_test(
@@ -95,42 +103,42 @@ add_test(
 add_test(
   NAME basis_integration_cache
   COMMAND test_basis_integration
-          ${CMAKE_CURRENT_SOURCE_DIR}/../A1_Nx11_Ny11.msh
+          ${CALLAWAY_REFERENCE_MESH}
 )
 
 add_test(
   NAME moments_and_sweep_ordering
   COMMAND test_moments_sweep
           ${CMAKE_CURRENT_SOURCE_DIR}/config/control.example.yaml
-          ${CMAKE_CURRENT_SOURCE_DIR}/../A1_Nx11_Ny11.msh
+          ${CALLAWAY_REFERENCE_MESH}
 )
 
 add_test(
   NAME kinetic_sweep_equilibrium
   COMMAND test_kinetic_sweep
           ${CMAKE_CURRENT_SOURCE_DIR}/config/control.example.yaml
-          ${CMAKE_CURRENT_SOURCE_DIR}/../A1_Nx11_Ny11.msh
+          ${CALLAWAY_REFERENCE_MESH}
 )
 
 add_test(
   NAME cis_iteration_equilibrium
   COMMAND test_cis_iteration
           ${CMAKE_CURRENT_SOURCE_DIR}/config/control.example.yaml
-          ${CMAKE_CURRENT_SOURCE_DIR}/../A1_Nx11_Ny11.msh
+          ${CALLAWAY_REFERENCE_MESH}
 )
 
 add_test(
   NAME output_manager_equilibrium
   COMMAND test_output_manager
           ${CMAKE_CURRENT_SOURCE_DIR}/config/control.example.yaml
-          ${CMAKE_CURRENT_SOURCE_DIR}/../A1_Nx11_Ny11.msh
+          ${CALLAWAY_REFERENCE_MESH}
 )
 
 add_test(
   NAME synthetic_acceleration_source
   COMMAND test_synthetic_acceleration
           ${CMAKE_CURRENT_SOURCE_DIR}/config/control.example.yaml
-          ${CMAKE_CURRENT_SOURCE_DIR}/../A1_Nx11_Ny11.msh
+          ${CALLAWAY_REFERENCE_MESH}
 )
 
 add_test(
@@ -138,47 +146,4 @@ add_test(
   COMMAND callaway_mfem
           --config ${CMAKE_CURRENT_SOURCE_DIR}/config/control.gsis_smoke.yaml
           --solve
-)
-
-add_test(
-  NAME tecplot_compare_tool
-  COMMAND ${Python3_EXECUTABLE}
-          ${CMAKE_CURRENT_SOURCE_DIR}/scripts/compare_tecplot.py
-          ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/tecplot_small.dat
-          ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/tecplot_small.dat
-          --columns T,qx,qy,Nxx,Nxy,Nyy
-)
-
-add_test(
-  NAME control_in_converter
-  COMMAND ${Python3_EXECUTABLE}
-          ${CMAKE_CURRENT_SOURCE_DIR}/tests/scripts/test_convert_control_in.py
-          ${CMAKE_CURRENT_SOURCE_DIR}/scripts/convert_control_in.py
-          ${CMAKE_CURRENT_SOURCE_DIR}/../control.in
-)
-
-add_test(
-  NAME fortran_baseline_script_syntax
-  COMMAND bash -n ${CMAKE_CURRENT_SOURCE_DIR}/scripts/run_fortran_baseline.sh
-)
-
-add_test(
-  NAME regression_script_syntax
-  COMMAND bash -n ${CMAKE_CURRENT_SOURCE_DIR}/scripts/run_regression.sh
-)
-
-add_test(
-  NAME fortran_residual_parser
-  COMMAND ${Python3_EXECUTABLE}
-          ${CMAKE_CURRENT_SOURCE_DIR}/scripts/parse_fortran_residual.py
-          ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/fortran_stdout_small.log
-)
-
-add_test(
-  NAME residual_compare_tool
-  COMMAND ${Python3_EXECUTABLE}
-          ${CMAKE_CURRENT_SOURCE_DIR}/scripts/compare_residual.py
-          ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/residual_small.csv
-          ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/residual_small.csv
-          --columns residual,mass
 )

@@ -156,15 +156,15 @@ IterationResult GsisIterationDriver::Run(Distribution &distribution) const
       sweep_solver_.Sweep(moments, distribution);
 
       const MacroState source = acceleration_solver_.ComputeHighOrderSource(distribution);
-      const TraceSystem trace_system =
-         acceleration_solver_.BuildTraceSystem(mesh_, source, &distribution);
+      const mfem::Vector trace_rhs =
+         acceleration_solver_.BuildTraceRhs(mesh_, source, &distribution);
       const TraceSolveResult trace_result =
-         acceleration_solver_.SolveTraceSystem(trace_system,
-                                               trace_solver_.relative_tolerance,
-                                               trace_solver_.absolute_tolerance,
-                                               trace_solver_.max_iterations,
-                                               trace_solver_.print_level,
-                                               trace_solver_.preconditioner);
+         acceleration_solver_.SolveTraceRhs(trace_rhs,
+                                            trace_solver_.relative_tolerance,
+                                            trace_solver_.absolute_tolerance,
+                                            trace_solver_.max_iterations,
+                                            trace_solver_.print_level,
+                                            trace_solver_.preconditioner);
       const MacroState macro_state =
          acceleration_solver_.ReconstructMacroState(mesh_, source, trace_result.trace);
       MomentFields current =

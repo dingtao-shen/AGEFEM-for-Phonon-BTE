@@ -1,0 +1,23 @@
+{
+  "cache_local_lu": true,
+  "case_id": "knr1e-3_knn1e5",
+  "converged": true,
+  "expected_steps_paper": 43,
+  "field": "validation/results/knr1e-3_knn1e5/gsis/gsis_field.dat",
+  "final_residual": 9.81604391723e-08,
+  "knn": 100000.0,
+  "knr": 0.001,
+  "mass": 0.249997473928,
+  "notes": "Fourier-limit case; paper reports CIS > 1e6 steps.",
+  "nphi": 40,
+  "ntheta": 20,
+  "paraview": "validation/results/knr1e-3_knn1e5/gsis/gsis_paraview",
+  "reference": "validation/results/knr1e-3_knn1e5/gsis/gsis_reference.dat",
+  "residual": "validation/results/knr1e-3_knn1e5/gsis/gsis_residual.csv",
+  "returncode": 0,
+  "scheme": "gsis",
+  "stdout": "validation/results/knr1e-3_knn1e5/gsis/stdout.log",
+  "steps": 43,
+  "tau_threshold": 1.0,
+  "wall_time_s": 34.58040110800357
+}

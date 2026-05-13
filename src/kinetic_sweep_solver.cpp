@@ -226,9 +226,12 @@ void KineticSweepSolver::BuildLocalLuCache()
    local_lu_cache_.assign(system_count * static_cast<std::size_t>(dofs * dofs), 0.0);
    local_pivot_cache_.assign(system_count * static_cast<std::size_t>(dofs), 0);
 
-   std::vector<double> matrix(static_cast<std::size_t>(dofs * dofs), 0.0);
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic)
+#endif
    for (int angle = 0; angle < quadrature_.size(); ++angle)
    {
+      std::vector<double> matrix(static_cast<std::size_t>(dofs * dofs), 0.0);
       for (int element = 0; element < integration_.element_count(); ++element)
       {
          AssembleLocalMatrix(angle, element, matrix);

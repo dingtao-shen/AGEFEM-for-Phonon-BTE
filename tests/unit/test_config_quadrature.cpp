@@ -37,6 +37,7 @@ int main(int argc, char **argv)
    assert(config.gsis.trace_max_iterations == 500);
    assert(config.gsis.trace_print_level == -1);
    assert(config.gsis.trace_preconditioner == callaway::TracePreconditionerType::None);
+   assert(!config.gsis.boundary_heat_flux_from_vdf);
    assert(config.velocity_mesh.polar_angles == 20);
    assert(config.velocity_mesh.azimuthal_angles == 40);
    assert(config.dg.order == 3);

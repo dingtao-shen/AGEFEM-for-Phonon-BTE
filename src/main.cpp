@@ -27,7 +27,8 @@ void PrintUsage(const char *program)
 {
    std::cout << "Usage: " << program
              << " [--config path] [--mesh path] [--solve] [--max-steps n]"
-             << " [--write-output] [--output-prefix path] [--output-samples n]\n";
+             << " [--write-output] [--output-prefix path] [--output-samples n]"
+             << " [--no-cache-local-lu]\n";
 }
 
 std::filesystem::path WithSuffix(std::filesystem::path prefix, const std::string &suffix)
@@ -46,6 +47,7 @@ int main(int argc, char **argv)
       std::filesystem::path mesh_override;
       bool solve = false;
       bool write_output = false;
+      bool cache_local_lu = true;
       std::filesystem::path output_prefix_override;
       int max_steps_override = 0;
       int output_samples_override = 0;
@@ -81,6 +83,11 @@ int main(int argc, char **argv)
          if (arg == "--write-output")
          {
             write_output = true;
+            continue;
+         }
+         if (arg == "--no-cache-local-lu")
+         {
+            cache_local_lu = false;
             continue;
          }
          if (arg == "--output-prefix" && i + 1 < argc)
@@ -141,13 +148,16 @@ int main(int argc, char **argv)
                                                          quadrature,
                                                          ordering,
                                                          config.flow,
-                                                         config.boundary_conditions);
+                                                         config.boundary_conditions,
+                                                         cache_local_lu);
          callaway::IterationResult result;
          if (config.gsis.enabled)
          {
-            callaway::SyntheticAccelerationSolver acceleration_solver(integration,
-                                                                      quadrature,
-                                                                      config.flow);
+            callaway::SyntheticAccelerationSolver acceleration_solver(
+               integration,
+               quadrature,
+               config.flow,
+               config.gsis.boundary_heat_flux_from_vdf);
             acceleration_solver.BuildTraceCoupling(mesh, config.boundary_conditions);
             callaway::TraceSolverSettings trace_solver;
             trace_solver.relative_tolerance = config.gsis.trace_relative_tolerance;

@@ -1,0 +1,16 @@
+Callaway MFEM refactor smoke run
+  config: "/home/dtshen/Dev/AGEFEM-for-Phonon-BTE/validation/configs/knr1e-3_knn1e5_gsis.yaml"
+  mesh:   "/home/dtshen/Dev/AGEFEM-for-Phonon-BTE/reference/FortranCodes/A1_Nx11_Ny11.msh"
+  scheme: GSIS
+  DG order: 3, element dofs: 10, face dofs: 4
+  tau_c: 0.00099999999
+  mesh summary: dim=2, vertices=121, elements=200, boundary_elements=40, faces=320, interior_faces=280, boundary_faces=40
+  angular directions: 800, sum(weight)=12.56637061435885, 4*pi=12.56637061435917
+  integration total area: 1
+  sweep ordering: 800 directions x 200 elements
+  GSIS solve: steps=43, converged=yes, final_residual=9.81604391723e-08, mass=0.249997473928
+  trace solve: iterations=1, converged=yes, initial_norm=0.209748212577, final_norm=3.79202962667e-17
+  output field: "validation/results/knr1e-3_knn1e5/gsis/gsis_field.dat"
+  output residual: "validation/results/knr1e-3_knn1e5/gsis/gsis_residual.csv"
+  output reference: "validation/results/knr1e-3_knn1e5/gsis/gsis_reference.dat"
+  output paraview: "validation/results/knr1e-3_knn1e5/gsis/gsis_paraview"
