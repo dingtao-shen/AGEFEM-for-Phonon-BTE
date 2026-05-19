@@ -51,9 +51,216 @@ KineticSweepSolver::KineticSweepSolver(const MeshAdapter &mesh,
       }
    }
 
+   // Build the curved-face -> (element, local_face) reverse map and detect
+   // diffuse curved faces. Diffuse reflection requires a per-iteration
+   // outflow precomputation against the previous distribution.
+   const int n_cf = integration_.CurvedFaceCount();
+   curved_face_to_elem_lf_.assign(static_cast<std::size_t>(n_cf), {-1, -1});
+   for (int e = 0; e < integration_.element_count(); ++e)
+   {
+      for (int lf = 0; lf < 3; ++lf)
+      {
+         if (integration_.IsCurvedFace(e, lf))
+         {
+            const int cf = integration_.CurvedFaceIndex(e, lf);
+            curved_face_to_elem_lf_[static_cast<std::size_t>(cf)] = {e, lf};
+         }
+      }
+   }
+   for (int cf = 0; cf < n_cf; ++cf)
+   {
+      const auto [e, lf] = curved_face_to_elem_lf_[static_cast<std::size_t>(cf)];
+      if (e < 0) { continue; }
+      const int face_id = mesh_.ElementFace(e, lf);
+      const FaceData &face = mesh_.Face(face_id);
+      const BoundaryCondition &bc = BoundaryForAttribute(face.boundary_attribute);
+      if (bc.type == BoundaryType::NonThermalizing)
+      {
+         has_diffuse_curved_face_ = true;
+         break;
+      }
+   }
+
+   // Build the straight diffuse boundary face mapping. A "straight diffuse"
+   // face is a boundary face that is NOT curved (no AGE curved binding) and
+   // whose configured BC is NonThermalizing (diffuse reflection).
+   straight_diffuse_index_.assign(
+      static_cast<std::size_t>(integration_.element_count()) * 3, -1);
+   for (int e = 0; e < integration_.element_count(); ++e)
+   {
+      for (int lf = 0; lf < 3; ++lf)
+      {
+         if (integration_.IsCurvedFace(e, lf)) { continue; }
+         if (mesh_.ElementNeighbor(e, lf) >= 0) { continue; } // interior face
+         const int face_id = mesh_.ElementFace(e, lf);
+         const FaceData &face = mesh_.Face(face_id);
+         if (face.boundary_attribute <= 0) { continue; }
+         const BoundaryCondition &bc = BoundaryForAttribute(face.boundary_attribute);
+         if (bc.type != BoundaryType::NonThermalizing) { continue; }
+         straight_diffuse_index_[static_cast<std::size_t>(e * 3 + lf)] =
+            static_cast<int>(straight_diffuse_to_elem_lf_.size());
+         straight_diffuse_to_elem_lf_.push_back({e, lf});
+      }
+   }
+   has_diffuse_straight_face_ = !straight_diffuse_to_elem_lf_.empty();
+
    if (cache_local_lu_)
    {
       BuildLocalLuCache();
+   }
+}
+
+void KineticSweepSolver::RefreshDiffuseWallInflow(const Distribution &distribution) const
+{
+   if (!has_diffuse_curved_face_ && !has_diffuse_straight_face_) { return; }
+   const int n_angles = quadrature_.size();
+   const int n_cf = integration_.CurvedFaceCount();
+   const int n_dofs = integration_.dofs();
+
+   // Compute the discrete inflow integral I(n) = sum_{a: s_a . n < 0} w_a |s_a . n|
+   // for a given outward normal. In the continuous 3D limit I(n) -> pi, but for
+   // coarse angular quadratures the analytic pi causes the diffuse BC to inject
+   // more energy than was reflected, breaking the bound T <= max(T_BC). Using
+   // the discrete I(n) preserves energy conservation at the wall to machine
+   // precision regardless of angular resolution.
+   auto discrete_inflow_integral = [&](double nx, double ny) -> double {
+      double sum = 0.0;
+      for (int a = 0; a < n_angles; ++a)
+      {
+         const Direction &d = quadrature_[a];
+         const double sn = d.cx * nx + d.cy * ny;
+         if (sn < 0.0) { sum += d.weight * (-sn); }
+      }
+      return sum;
+   };
+
+   diffuse_wall_inflow_.assign(
+      static_cast<std::size_t>(n_angles) * static_cast<std::size_t>(n_cf) *
+      static_cast<std::size_t>(n_dofs), 0.0);
+
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic)
+#endif
+   for (int cf = 0; cf < n_cf; ++cf)
+   {
+      const auto [elem, lf] = curved_face_to_elem_lf_[static_cast<std::size_t>(cf)];
+      if (elem < 0) { continue; }
+      const int face_id = mesh_.ElementFace(elem, lf);
+      const FaceData &face = mesh_.Face(face_id);
+      const BoundaryCondition &bc = BoundaryForAttribute(face.boundary_attribute);
+      if (bc.type != BoundaryType::NonThermalizing) { continue; }
+
+      const auto &rec = integration_.CurvedFaceData(elem, lf);
+      const std::size_t n_qpts = rec.points.size();
+
+      for (std::size_t q = 0; q < n_qpts; ++q)
+      {
+         const double nx = rec.normals[q][0];
+         const double ny = rec.normals[q][1];
+         const std::vector<double> &basis_q = rec.basis[q];
+         const double w_q = rec.weights[q];
+
+         // F_out(x_q) = sum over directions with s . n > 0 of
+         //             weight * (s . n) * e(s, x_q).
+         double F_out = 0.0;
+         for (int a = 0; a < n_angles; ++a)
+         {
+            const Direction &d = quadrature_[a];
+            const double sn = d.cx * nx + d.cy * ny;
+            if (sn <= 0.0) { continue; }
+            double e_at_q = 0.0;
+            for (int dof = 0; dof < n_dofs; ++dof)
+            {
+               e_at_q += basis_q[static_cast<std::size_t>(dof)] *
+                         distribution(a, elem, dof);
+            }
+            F_out += d.weight * sn * e_at_q;
+         }
+         const double I_n = discrete_inflow_integral(nx, ny);
+         const double e_star = (I_n > 0.0) ? (F_out / I_n) : 0.0;
+
+         // Per inflow angle a (s_a . n_q < 0): contribution to rhs[row] is
+         // (-s_a . n_q) * basis[row] * e_star * w_q.
+         for (int a = 0; a < n_angles; ++a)
+         {
+            const Direction &d = quadrature_[a];
+            const double sn_a = d.cx * nx + d.cy * ny;
+            if (sn_a >= 0.0) { continue; }
+            const double prefactor = -sn_a * e_star * w_q;
+            const std::size_t base =
+               (static_cast<std::size_t>(a) * static_cast<std::size_t>(n_cf) +
+                static_cast<std::size_t>(cf)) *
+               static_cast<std::size_t>(n_dofs);
+            for (int row = 0; row < n_dofs; ++row)
+            {
+               diffuse_wall_inflow_[base + static_cast<std::size_t>(row)] +=
+                  prefactor * basis_q[static_cast<std::size_t>(row)];
+            }
+         }
+      }
+   }
+
+   // Straight diffuse faces. Constant outward normal lets us factor the
+   // F_out integral as a product of ElementFaceMass and the angular sum:
+   //   F_total[row] = (1/pi) sum_{a':s_a'.n>0} weight_a' (s_a'.n)
+   //                  sum_dof ElementFaceMass(elem,lf,row,dof) dist(a',elem,dof)
+   // and the per-inflow contribution for angle a is -(s_a.n) * F_total[row].
+   if (has_diffuse_straight_face_)
+   {
+      const int n_sd = static_cast<int>(straight_diffuse_to_elem_lf_.size());
+      diffuse_wall_inflow_straight_.assign(
+         static_cast<std::size_t>(n_angles) * static_cast<std::size_t>(n_sd) *
+         static_cast<std::size_t>(n_dofs), 0.0);
+
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic)
+#endif
+      for (int sd = 0; sd < n_sd; ++sd)
+      {
+         const auto [elem, lf] = straight_diffuse_to_elem_lf_[static_cast<std::size_t>(sd)];
+         const auto normal = integration_.OutwardNormal(elem, lf);
+         const double nx = normal[0];
+         const double ny = normal[1];
+         const double I_n = discrete_inflow_integral(nx, ny);
+         const double inv_I_n = (I_n > 0.0) ? (1.0 / I_n) : 0.0;
+
+         // F_total[row] aggregated from outflow directions.
+         std::vector<double> F_total(static_cast<std::size_t>(n_dofs), 0.0);
+         for (int a2 = 0; a2 < n_angles; ++a2)
+         {
+            const Direction &d2 = quadrature_[a2];
+            const double sn2 = d2.cx * nx + d2.cy * ny;
+            if (sn2 <= 0.0) { continue; }
+            const double angular_factor = inv_I_n * d2.weight * sn2;
+            for (int row = 0; row < n_dofs; ++row)
+            {
+               double proj = 0.0;
+               for (int dof = 0; dof < n_dofs; ++dof)
+               {
+                  proj += integration_.ElementFaceMass(elem, lf, row, dof) *
+                          distribution(a2, elem, dof);
+               }
+               F_total[static_cast<std::size_t>(row)] += angular_factor * proj;
+            }
+         }
+
+         // Spread to each inflow angle.
+         for (int a = 0; a < n_angles; ++a)
+         {
+            const Direction &d = quadrature_[a];
+            const double sn_a = d.cx * nx + d.cy * ny;
+            if (sn_a >= 0.0) { continue; }
+            const std::size_t base =
+               (static_cast<std::size_t>(a) * static_cast<std::size_t>(n_sd) +
+                static_cast<std::size_t>(sd)) *
+               static_cast<std::size_t>(n_dofs);
+            for (int row = 0; row < n_dofs; ++row)
+            {
+               diffuse_wall_inflow_straight_[base + static_cast<std::size_t>(row)] =
+                  -sn_a * F_total[static_cast<std::size_t>(row)];
+            }
+         }
+      }
    }
 }
 
@@ -118,6 +325,14 @@ void KineticSweepSolver::Sweep(const MomentFields &moments,
 
          for (int local_face = 0; local_face < 3; ++local_face)
          {
+            if (integration_.IsCurvedFace(element, local_face))
+            {
+               // Curved boundary face — apply BC inflow contribution. The
+               // outflow part already entered the local matrix via
+               // CurvedFaceMatrix in AssembleLocalMatrix.
+               AddCurvedFaceInflow(angle, element, local_face, rhs);
+               continue;
+            }
             const auto normal = integration_.OutwardNormal(element, local_face);
             const double speed = direction.cx * normal[0] + direction.cy * normal[1];
             if (speed >= 0.0) { continue; }
@@ -205,6 +420,13 @@ void KineticSweepSolver::AssembleLocalMatrix(int angle,
 
          for (int local_face = 0; local_face < 3; ++local_face)
          {
+            if (integration_.IsCurvedFace(element, local_face))
+            {
+               // Curved face: integral of max(s . n, 0) * phi_row * phi_col
+               // is direction-dependent and already folded in by the cache.
+               value += integration_.CurvedFaceMatrix(angle, element, local_face, row, col);
+               continue;
+            }
             const auto normal = integration_.OutwardNormal(element, local_face);
             const double speed = direction.cx * normal[0] + direction.cy * normal[1];
             if (speed > 0.0)
@@ -265,7 +487,58 @@ const int *KineticSweepSolver::LocalPivots(int angle, int element) const
           LocalSystemIndex(angle, element) * static_cast<std::size_t>(dofs);
 }
 
-void KineticSweepSolver::AddBoundaryInflow(int,
+void KineticSweepSolver::AddCurvedFaceInflow(int angle,
+                                             int element,
+                                             int local_face,
+                                             std::vector<double> &rhs) const
+{
+   const int face_id = mesh_.ElementFace(element, local_face);
+   const FaceData &face = mesh_.Face(face_id);
+   const BoundaryCondition &bc = BoundaryForAttribute(face.boundary_attribute);
+   switch (bc.type)
+   {
+      case BoundaryType::Thermalizing:
+      {
+         const double value = ThermalizingInflowValue(bc);
+         for (int row = 0; row < integration_.dofs(); ++row)
+         {
+            // CurvedFaceInflowWeight = integral(min(s . n, 0) * phi_row),
+            // which is <= 0; subtract to add the BC inflow to the RHS.
+            rhs[static_cast<std::size_t>(row)] -=
+               value * integration_.CurvedFaceInflowWeight(angle, element, local_face, row);
+         }
+         break;
+      }
+      case BoundaryType::NonThermalizing:
+      {
+         // Diffuse reflection: use the precomputed wall-inflow contribution
+         // from RefreshDiffuseWallInflow (called by the iteration driver).
+         const int cf_idx = integration_.CurvedFaceIndex(element, local_face);
+         const int n_cf = integration_.CurvedFaceCount();
+         const int n_dofs = integration_.dofs();
+         const std::size_t base =
+            (static_cast<std::size_t>(angle) * static_cast<std::size_t>(n_cf) +
+             static_cast<std::size_t>(cf_idx)) *
+            static_cast<std::size_t>(n_dofs);
+         for (int row = 0; row < n_dofs; ++row)
+         {
+            rhs[static_cast<std::size_t>(row)] +=
+               diffuse_wall_inflow_[base + static_cast<std::size_t>(row)];
+         }
+         break;
+      }
+      case BoundaryType::Periodic:
+      case BoundaryType::Symmetry:
+      {
+         std::ostringstream os;
+         os << "KineticSweepSolver: curved-face boundary type '" << ToString(bc.type)
+            << "' is not implemented in this milestone.";
+         throw std::runtime_error(os.str());
+      }
+   }
+}
+
+void KineticSweepSolver::AddBoundaryInflow(int angle,
                                            int element,
                                            int local_face,
                                            double inflow_speed,
@@ -289,15 +562,40 @@ void KineticSweepSolver::AddBoundaryInflow(int,
          break;
       }
       case BoundaryType::NonThermalizing:
+      {
+         // Diffuse reflection on a straight boundary face: read the
+         // precomputed inflow contribution from RefreshDiffuseWallInflow.
+         const int sd_idx =
+            straight_diffuse_index_[static_cast<std::size_t>(element * 3 + local_face)];
+         if (sd_idx < 0)
+         {
+            throw std::runtime_error(
+               "KineticSweepSolver: NonThermalizing straight boundary face "
+               "was not registered for diffuse reflection during construction.");
+         }
+         const int n_sd = static_cast<int>(straight_diffuse_to_elem_lf_.size());
+         const int n_dofs = integration_.dofs();
+         const std::size_t base =
+            (static_cast<std::size_t>(angle) * static_cast<std::size_t>(n_sd) +
+             static_cast<std::size_t>(sd_idx)) *
+            static_cast<std::size_t>(n_dofs);
+         for (int row = 0; row < n_dofs; ++row)
+         {
+            rhs[static_cast<std::size_t>(row)] +=
+               diffuse_wall_inflow_straight_[base + static_cast<std::size_t>(row)];
+         }
+         break;
+      }
       case BoundaryType::Periodic:
       case BoundaryType::Symmetry:
       {
          std::ostringstream os;
          os << "Boundary type '" << ToString(bc.type)
-            << "' is defined in the interface but is not implemented in the first CIS sweep milestone.";
+            << "' is not yet implemented for straight boundary faces.";
          throw std::runtime_error(os.str());
       }
    }
+   (void) inflow_speed; // already consumed in the thermalizing branch
 }
 
 } // namespace callaway

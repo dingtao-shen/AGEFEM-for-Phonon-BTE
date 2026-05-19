@@ -1,0 +1,51 @@
+# AGEFEM example: homogeneous concentric ring (paper §5.1).
+# Inner radius R_1 = 0.1, outer radius R_L = 0.5; 16 wedges (32 AGE elements).
+# Inner boundary held at T_h = 0.5 (hot), outer at T_c = -0.5 (cold).
+#
+# This config exercises the end-to-end AGE pipeline through the executable:
+# AgePreprocessor binds the inner/outer circular arcs from the sidecar,
+# IntegrationCache builds curved-geometry tensors via Upsilon quadrature,
+# KineticSweepSolver uses the curved-face accessors for upwind flux and
+# thermalizing-BC inflow.
+
+iteration:
+  tolerance: 1.0e-5
+  max_steps: 2000
+
+gsis:
+  enabled: false   # GSIS on AGE meshes is not yet supported
+
+velocity_mesh:
+  polar_angles: 4
+  azimuthal_angles: 16
+
+dg:
+  order: 2
+
+flow:
+  specific_heat: 1.0
+  group_velocity: 1.0
+  tau_r: 1.0
+  tau_n: 1.0e5
+  tau_threshold: 1.0
+
+age:
+  curved_face_tensors: precomputed
+  edge_quadrature_points: 15
+  area_quadrature_points: 15
+
+files:
+  mesh: age_ring.mesh
+  geometry: age_ring.age.yaml
+  output_prefix: output_age_ring
+  output_samples: 109
+
+boundary_conditions:
+  - name: Inner
+    physical_id: 1
+    type: thermalizing
+    temperature: 0.5
+  - name: Outer
+    physical_id: 2
+    type: thermalizing
+    temperature: -0.5

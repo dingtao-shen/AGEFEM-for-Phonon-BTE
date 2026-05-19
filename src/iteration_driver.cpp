@@ -49,6 +49,7 @@ IterationResult CisIterationDriver::Run(Distribution &distribution) const
 
    for (int step = 1; step <= iteration_.max_steps; ++step)
    {
+      sweep_solver_.RefreshDiffuseWallInflow(distribution);
       sweep_solver_.Sweep(moments, distribution);
       MomentFields current =
          MomentCalculator::Compute(distribution, quadrature_, integration_, specific_heat_);
@@ -153,6 +154,7 @@ IterationResult GsisIterationDriver::Run(Distribution &distribution) const
 
    for (int step = 1; step <= iteration_.max_steps; ++step)
    {
+      sweep_solver_.RefreshDiffuseWallInflow(distribution);
       sweep_solver_.Sweep(moments, distribution);
 
       const MacroState source = acceleration_solver_.ComputeHighOrderSource(distribution);

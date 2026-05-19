@@ -59,9 +59,23 @@ struct FlowSettings
    double tau_combined() const;
 };
 
+enum class CurvedFaceTensorMode
+{
+   Precomputed, // build direction-dependent curved-face tensors at construction
+   OnTheFly     // evaluate the s . n upwind split per direction at solve time
+};
+
+struct AgeSettings
+{
+   CurvedFaceTensorMode curved_face_tensors = CurvedFaceTensorMode::Precomputed;
+   int edge_quadrature_points = 15; // 1D Gauss-Legendre points along a curved edge
+   int area_quadrature_points = 15; // 1D Gauss-Legendre points per Upsilon direction
+};
+
 struct FileSettings
 {
    std::filesystem::path mesh;
+   std::filesystem::path geometry; // optional AGE geometry sidecar; empty => straight-sided run
    std::filesystem::path output_prefix = "output";
    int output_samples = 109;
 };
@@ -73,6 +87,7 @@ struct Config
    VelocityMeshSettings velocity_mesh;
    DgSettings dg;
    FlowSettings flow;
+   AgeSettings age;
    FileSettings files;
    std::vector<BoundaryCondition> boundary_conditions;
 
@@ -82,5 +97,7 @@ struct Config
 Config LoadConfig(const std::filesystem::path &path);
 const char *ToString(TracePreconditionerType type);
 TracePreconditionerType TracePreconditionerTypeFromString(const std::string &value);
+const char *ToString(CurvedFaceTensorMode mode);
+CurvedFaceTensorMode CurvedFaceTensorModeFromString(const std::string &value);
 
 } // namespace callaway

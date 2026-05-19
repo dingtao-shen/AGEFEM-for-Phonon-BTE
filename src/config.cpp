@@ -20,6 +20,7 @@ enum class Section
    VelocityMesh,
    Dg,
    Flow,
+   Age,
    Files,
    BoundaryConditions
 };
@@ -135,6 +136,7 @@ Section SectionFromName(const std::string &name)
    if (lower == "velocity_mesh") { return Section::VelocityMesh; }
    if (lower == "dg") { return Section::Dg; }
    if (lower == "flow") { return Section::Flow; }
+   if (lower == "age") { return Section::Age; }
    if (lower == "files") { return Section::Files; }
    if (lower == "boundary_conditions") { return Section::BoundaryConditions; }
    throw std::runtime_error("Unknown configuration section: " + name);
@@ -224,6 +226,30 @@ TracePreconditionerType TracePreconditionerTypeFromString(const std::string &val
    throw std::runtime_error("Unknown GSIS trace preconditioner type: " + value);
 }
 
+const char *ToString(CurvedFaceTensorMode mode)
+{
+   switch (mode)
+   {
+      case CurvedFaceTensorMode::Precomputed: return "precomputed";
+      case CurvedFaceTensorMode::OnTheFly:    return "on_the_fly";
+   }
+   return "unknown";
+}
+
+CurvedFaceTensorMode CurvedFaceTensorModeFromString(const std::string &value)
+{
+   const std::string lower = ToLower(value);
+   if (lower == "precomputed" || lower == "pre" || lower == "cached")
+   {
+      return CurvedFaceTensorMode::Precomputed;
+   }
+   if (lower == "on_the_fly" || lower == "onthefly" || lower == "on-the-fly" || lower == "lazy")
+   {
+      return CurvedFaceTensorMode::OnTheFly;
+   }
+   throw std::runtime_error("Unknown AGE curved_face_tensors mode: " + value);
+}
+
 int DgSettings::triangle_dofs() const
 {
    return (order + 1) * (order + 2) / 2;
@@ -286,6 +312,14 @@ void Config::Validate() const
    }
    if (files.mesh.empty()) { throw std::runtime_error("Mesh path is required."); }
    if (files.output_samples < 11) { throw std::runtime_error("output_samples must be at least 11."); }
+   if (age.edge_quadrature_points < 1)
+   {
+      throw std::runtime_error("age.edge_quadrature_points must be at least 1.");
+   }
+   if (age.area_quadrature_points < 1)
+   {
+      throw std::runtime_error("age.area_quadrature_points must be at least 1.");
+   }
    if (boundary_conditions.empty()) { throw std::runtime_error("At least one boundary condition is required."); }
 
    for (const auto &bc : boundary_conditions)
@@ -378,8 +412,24 @@ Config LoadConfig(const std::filesystem::path &path)
             else if (key == "tau_threshold") { config.flow.tau_threshold = ToDouble(value, key); }
             else { throw std::runtime_error("Unknown flow key: " + key); }
             break;
+         case Section::Age:
+            if (key == "curved_face_tensors")
+            {
+               config.age.curved_face_tensors = CurvedFaceTensorModeFromString(value);
+            }
+            else if (key == "edge_quadrature_points")
+            {
+               config.age.edge_quadrature_points = ToInt(value, key);
+            }
+            else if (key == "area_quadrature_points")
+            {
+               config.age.area_quadrature_points = ToInt(value, key);
+            }
+            else { throw std::runtime_error("Unknown age key: " + key); }
+            break;
          case Section::Files:
             if (key == "mesh") { config.files.mesh = ResolvePath(path, value); }
+            else if (key == "geometry") { config.files.geometry = ResolvePath(path, value); }
             else if (key == "output_prefix") { config.files.output_prefix = value; }
             else if (key == "output_samples") { config.files.output_samples = ToInt(value, key); }
             else { throw std::runtime_error("Unknown files key: " + key); }

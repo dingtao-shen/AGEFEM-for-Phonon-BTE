@@ -1,0 +1,12 @@
+version: 1
+curves:
+  - boundary_id: 1
+    type: circular_arc
+    center: [0.0, 0.0]
+    radius: 0.1
+    orientation: cw
+  - boundary_id: 2
+    type: circular_arc
+    center: [0.0, 0.0]
+    radius: 0.5
+    orientation: ccw

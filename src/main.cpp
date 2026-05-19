@@ -1,3 +1,6 @@
+#include "callaway/age_basis.hpp"
+#include "callaway/age_mesh.hpp"
+#include "callaway/age_preprocessor.hpp"
 #include "callaway/angular_quadrature.hpp"
 #include "callaway/config.hpp"
 #include "callaway/distribution.hpp"
@@ -110,12 +113,38 @@ int main(int argc, char **argv)
       if (output_samples_override > 0) { config.files.output_samples = output_samples_override; }
       config.Validate();
       callaway::AngularQuadrature quadrature(config.velocity_mesh, config.flow.group_velocity);
-      callaway::MeshAdapter mesh(config.files.mesh);
-      mesh.ValidateBoundaryAttributes(config.boundary_conditions);
+      callaway::MeshAdapter mesh_loader(config.files.mesh);
+      mesh_loader.ValidateBoundaryAttributes(config.boundary_conditions);
+
+      // Route everything through AgePreprocessor. With no sidecar the result
+      // is a thin pass-through over the loaded mesh; with a sidecar the AGE
+      // elements are identified and bound to their curves. The AGE-aware
+      // IntegrationCache reproduces the straight-only ctor bit-for-bit when
+      // no AGE elements are present.
+      const callaway::AgePreprocessor age_preprocessor;
+      callaway::AgePreprocessReport age_report;
+      callaway::AgeMesh age_mesh = config.files.geometry.empty()
+         ? age_preprocessor.BuildStraight(std::move(mesh_loader), &age_report)
+         : age_preprocessor.Build(std::move(mesh_loader),
+                                  config.files.geometry,
+                                  config.boundary_conditions,
+                                  &age_report);
+      if (config.gsis.enabled && age_report.age_elements > 0)
+      {
+         throw std::runtime_error(
+            "GSIS on AGE meshes is not yet supported. "
+            "Run with gsis.enabled: false on AGE meshes for now.");
+      }
+
+      callaway::MeshAdapter &mesh = age_mesh.mesh();
       const callaway::MeshSummary summary = mesh.Summary();
       const callaway::NodalBasis basis(config.dg.order);
-      const callaway::IntegrationCache integration(mesh, basis);
-      callaway::Distribution distribution(quadrature.size(), integration.element_count(), integration.dofs());
+      const auto age_bases = callaway::BuildAgeElementBases(age_mesh, config.dg.order);
+      const callaway::IntegrationCache integration(age_mesh, basis, age_bases,
+                                                    quadrature, config.age);
+      callaway::Distribution distribution(quadrature.size(),
+                                          integration.element_count(),
+                                          integration.dofs());
       const callaway::SweepOrdering ordering(mesh, integration, quadrature);
 
       std::cout << "Callaway MFEM refactor smoke run\n";
@@ -133,6 +162,15 @@ int main(int argc, char **argv)
                 << ", faces=" << summary.faces
                 << ", interior_faces=" << mesh.InteriorFaceCount()
                 << ", boundary_faces=" << mesh.BoundaryFaceCount() << "\n";
+      std::cout << "  AGE: " << age_report.age_elements << " AGE elements, "
+                << age_report.curved_faces << " curved faces, "
+                << age_report.bound_curves << " bound curves";
+      if (age_report.bound_curves > 0)
+      {
+         std::cout << ", max endpoint projection error="
+                   << std::setprecision(3) << age_report.max_endpoint_projection_error;
+      }
+      std::cout << "\n";
       std::cout << "  angular directions: " << quadrature.size()
                 << ", sum(weight)=" << std::setprecision(16) << quadrature.SumWeights()
                 << ", 4*pi=" << 4.0 * callaway::Pi << "\n";
