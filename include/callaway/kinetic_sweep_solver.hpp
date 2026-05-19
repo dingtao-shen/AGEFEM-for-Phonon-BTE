@@ -34,7 +34,27 @@ public:
    // existing const Sweep API is preserved.
    void RefreshDiffuseWallInflow(const Distribution &distribution) const;
 
+   // Recompute the per-straight-face specular-reflection inflow
+   // contributions from the previous-iteration distribution. The partner
+   // direction for cx-flip on a vertical wall is precomputed at
+   // construction; horizontal / oblique specular walls are not yet
+   // supported. Must be called once per CIS iteration before Sweep when
+   // there are straight specular faces; a no-op otherwise.
+   void RefreshSpecularInflow(const Distribution &distribution) const;
+
+   // Recompute the per-straight-face periodic inflow contribution from
+   // the previous-iteration distribution. The contribution combines a
+   // partner-cell coupling (against the periodically-shifted neighbour
+   // face mass tensor populated by IntegrationCache) plus a constant
+   // delta-temperature thermalising-like piece driven by the boundary
+   // condition's `temperature` field, interpreted as ΔT_bc = T_self −
+   // T_partner. Must be called once per CIS iteration before Sweep when
+   // periodic straight faces are present; a no-op otherwise.
+   void RefreshPeriodicInflow(const Distribution &distribution) const;
+
    bool has_diffuse_curved_face() const { return has_diffuse_curved_face_; }
+   bool has_specular_straight_face() const { return has_specular_straight_face_; }
+   bool has_periodic_straight_face() const { return has_periodic_straight_face_; }
 
 private:
    const MeshAdapter &mesh_;
@@ -92,6 +112,29 @@ private:
    std::vector<int> straight_diffuse_index_;
    bool has_diffuse_straight_face_ = false;
    mutable std::vector<double> diffuse_wall_inflow_straight_;
+
+   // Straight specular face state. Currently only vertical walls (n_y == 0)
+   // are supported — the partner direction for the cx-reflection is
+   // computed from the polar-azimuthal layout of AngularQuadrature. The
+   // partner table caches angle -> partner-angle once at construction.
+   std::vector<std::pair<int, int>> straight_specular_to_elem_lf_;
+   std::vector<int> straight_specular_index_;
+   bool has_specular_straight_face_ = false;
+   std::vector<int> vertical_specular_partner_angle_;  // size = n_angles
+   mutable std::vector<double> specular_inflow_straight_;
+
+   // Straight periodic face state. straight_periodic_to_elem_lf_ enumerates
+   // the periodic straight boundary faces in solver-local order;
+   // straight_periodic_index_ maps [elem * 3 + lf] -> that order (or -1 if
+   // not a periodic straight face). straight_periodic_partner_element_
+   // caches the partner element per ordered periodic face. The temperature
+   // delta stored on the matching BoundaryCondition is interpreted as
+   // ΔT_bc = T_self - T_partner.
+   std::vector<std::pair<int, int>> straight_periodic_to_elem_lf_;
+   std::vector<int> straight_periodic_index_;
+   std::vector<int> straight_periodic_partner_element_;
+   bool has_periodic_straight_face_ = false;
+   mutable std::vector<double> periodic_inflow_straight_;
 };
 
 } // namespace callaway

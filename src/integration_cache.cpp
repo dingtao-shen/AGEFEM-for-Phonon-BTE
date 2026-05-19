@@ -312,6 +312,7 @@ IntegrationCache::IntegrationCache(const MeshAdapter &mesh_adapter, const NodalB
             const std::vector<double> face_values = basis.EvaluateFaceAll(t);
 
             std::vector<double> neighbor_values;
+            int periodic_partner_element = -1;
             const int neighbor = mesh_adapter.ElementNeighbor(elem, local_face);
             if (neighbor >= 0)
             {
@@ -319,6 +320,27 @@ IntegrationCache::IntegrationCache(const MeshAdapter &mesh_adapter, const NodalB
                   MapToReference(geometries_[static_cast<std::size_t>(neighbor)],
                                  physical[0], physical[1]);
                neighbor_values = basis.EvaluateTriangleAll(neighbor_ref[0], neighbor_ref[1]);
+            }
+            else
+            {
+               // No interior neighbour; consult the mesh's periodic-pair table.
+               // If this face is paired periodically, evaluate the partner
+               // element's basis at the shifted physical point so that the
+               // same NeighborFaceMass tensor that drives interior faces also
+               // drives periodic faces.
+               const int face_id = mesh_adapter.ElementFace(elem, local_face);
+               const PeriodicFacePair *pair = mesh_adapter.PeriodicPartner(face_id);
+               if (pair != nullptr && pair->partner_element >= 0)
+               {
+                  periodic_partner_element = pair->partner_element;
+                  const double partner_x = physical[0] - pair->translation_x;
+                  const double partner_y = physical[1] - pair->translation_y;
+                  const std::array<double, 2> partner_ref =
+                     MapToReference(geometries_[static_cast<std::size_t>(periodic_partner_element)],
+                                    partner_x, partner_y);
+                  neighbor_values =
+                     basis.EvaluateTriangleAll(partner_ref[0], partner_ref[1]);
+               }
             }
 
             for (int row = 0; row < dofs_; ++row)
@@ -335,7 +357,7 @@ IntegrationCache::IntegrationCache(const MeshAdapter &mesh_adapter, const NodalB
                      global_tri_values[static_cast<std::size_t>(row)] *
                      face_values[static_cast<std::size_t>(face_basis)] * weight;
                }
-               if (neighbor >= 0)
+               if (neighbor >= 0 || periodic_partner_element >= 0)
                {
                   for (int neighbor_col = 0; neighbor_col < dofs_; ++neighbor_col)
                   {
@@ -974,12 +996,29 @@ IntegrationCache::IntegrationCache(const AgeMesh &age_mesh,
                   basis.EvaluateTriangleAll(global_ref[0], global_ref[1]);
                const std::vector<double> face_values = basis.EvaluateFaceAll(t);
                std::vector<double> neighbor_values;
+               int periodic_partner_element = -1;
                if (neighbor >= 0)
                {
                   neighbor_values = EvaluateBasisAtPhysical(neighbor,
                                                             physical[0], physical[1],
                                                             age_mesh, basis,
                                                             age_basis_by_elem, geometries_);
+               }
+               else
+               {
+                  const int face_id = mesh_adapter.ElementFace(elem, local_face);
+                  const PeriodicFacePair *pair = mesh_adapter.PeriodicPartner(face_id);
+                  if (pair != nullptr && pair->partner_element >= 0)
+                  {
+                     periodic_partner_element = pair->partner_element;
+                     const double partner_x = physical[0] - pair->translation_x;
+                     const double partner_y = physical[1] - pair->translation_y;
+                     neighbor_values =
+                        EvaluateBasisAtPhysical(periodic_partner_element,
+                                                partner_x, partner_y,
+                                                age_mesh, basis,
+                                                age_basis_by_elem, geometries_);
+                  }
                }
                for (int row = 0; row < dofs_; ++row)
                {
@@ -995,7 +1034,7 @@ IntegrationCache::IntegrationCache(const AgeMesh &age_mesh,
                         global_tri_values[static_cast<std::size_t>(row)] *
                         face_values[static_cast<std::size_t>(face_basis)] * weight;
                   }
-                  if (neighbor >= 0)
+                  if (neighbor >= 0 || periodic_partner_element >= 0)
                   {
                      for (int neighbor_col = 0; neighbor_col < dofs_; ++neighbor_col)
                      {
@@ -1021,10 +1060,27 @@ IntegrationCache::IntegrationCache(const AgeMesh &age_mesh,
                const double y = (1.0 - s) * va[1] + s * vb[1];
                const std::vector<double> phi_self = age_basis->EvaluateAll(x, y);
                std::vector<double> phi_neighbor;
+               int periodic_partner_element = -1;
                if (neighbor >= 0)
                {
                   phi_neighbor = EvaluateBasisAtPhysical(neighbor, x, y, age_mesh, basis,
                                                           age_basis_by_elem, geometries_);
+               }
+               else
+               {
+                  const int face_id = mesh_adapter.ElementFace(elem, local_face);
+                  const PeriodicFacePair *pair = mesh_adapter.PeriodicPartner(face_id);
+                  if (pair != nullptr && pair->partner_element >= 0)
+                  {
+                     periodic_partner_element = pair->partner_element;
+                     const double partner_x = x - pair->translation_x;
+                     const double partner_y = y - pair->translation_y;
+                     phi_neighbor =
+                        EvaluateBasisAtPhysical(periodic_partner_element,
+                                                partner_x, partner_y,
+                                                age_mesh, basis,
+                                                age_basis_by_elem, geometries_);
+                  }
                }
                for (int row = 0; row < dofs_; ++row)
                {
@@ -1034,7 +1090,7 @@ IntegrationCache::IntegrationCache(const AgeMesh &age_mesh,
                         phi_self[static_cast<std::size_t>(row)] *
                         phi_self[static_cast<std::size_t>(col)] * weight;
                   }
-                  if (neighbor >= 0)
+                  if (neighbor >= 0 || periodic_partner_element >= 0)
                   {
                      for (int neighbor_col = 0; neighbor_col < dofs_; ++neighbor_col)
                      {

@@ -10,7 +10,8 @@ namespace callaway
 
 AngularQuadrature::AngularQuadrature(const VelocityMeshSettings &settings, double group_velocity)
    : polar_count_(settings.polar_angles),
-     azimuthal_count_(settings.azimuthal_angles)
+     azimuthal_count_(settings.azimuthal_angles),
+     mode_(settings.polar_angles == 1 ? AngularMode::TwoD : AngularMode::ThreeD)
 {
    if (polar_count_ <= 0)
    {
@@ -48,19 +49,76 @@ AngularQuadrature::AngularQuadrature(const VelocityMeshSettings &settings, doubl
    }
 
    directions_.reserve(static_cast<std::size_t>(polar_count_ * azimuthal_count_));
-   for (int jp = 0; jp < polar_count_; ++jp)
+   if (mode_ == AngularMode::TwoD)
    {
+      // 2D circular quadrature: a single polar slot at theta=π/2 with all
+      // phonons in the (x, y) plane. cx = vg cos(phi), cy = vg sin(phi),
+      // weight = wphi summing to 2π. Matches the AGEFEM prototype's
+      // VelocityMesh layout for the porous benchmark.
       for (int ja = 0; ja < azimuthal_count_; ++ja)
       {
          Direction direction;
-         direction.theta = theta[jp];
+         direction.theta = 0.5 * Pi;
          direction.phi = phi[ja];
-         direction.weight = std::sin(theta[jp]) * wtheta[jp] * wphi[ja];
-         direction.cx = group_velocity * std::cos(theta[jp]);
-         direction.cy = group_velocity * std::sin(theta[jp]) * std::cos(phi[ja]);
+         direction.weight = wphi[ja];
+         direction.cx = group_velocity * std::cos(phi[ja]);
+         direction.cy = group_velocity * std::sin(phi[ja]);
          directions_.push_back(direction);
       }
    }
+   else
+   {
+      // 3D spherical quadrature: theta is the polar angle from the +x
+      // axis, phi is the azimuthal angle around the +x axis. Weight is
+      // sin(theta) wtheta wphi and sums to 4π.
+      for (int jp = 0; jp < polar_count_; ++jp)
+      {
+         for (int ja = 0; ja < azimuthal_count_; ++ja)
+         {
+            Direction direction;
+            direction.theta = theta[jp];
+            direction.phi = phi[ja];
+            direction.weight = std::sin(theta[jp]) * wtheta[jp] * wphi[ja];
+            direction.cx = group_velocity * std::cos(theta[jp]);
+            direction.cy = group_velocity * std::sin(theta[jp]) * std::cos(phi[ja]);
+            directions_.push_back(direction);
+         }
+      }
+   }
+}
+
+double AngularQuadrature::equilibrium_normalization() const
+{
+   return (mode_ == AngularMode::TwoD) ? (2.0 * Pi) : (4.0 * Pi);
+}
+
+double AngularQuadrature::moment_factor() const
+{
+   return (mode_ == AngularMode::TwoD) ? 2.0 : 3.0;
+}
+
+int AngularQuadrature::CxFlipPartner(int angle) const
+{
+   if (mode_ == AngularMode::TwoD)
+   {
+      // 2D vertical-wall reflection: cos(phi) -> -cos(phi). The phi
+      // quadrature is laid out as two halves: indices [0, half) carry
+      // GL nodes in [0, π] (high-to-low), [half, 2*half) in [π, 2π]
+      // (high-to-low). Symmetric GL nodes give the partner index by
+      // reflection within each half.
+      const int half = azimuthal_count_ / 2;
+      if (angle < half)
+      {
+         return (half - 1) - angle;
+      }
+      return (3 * half - 1) - angle;
+   }
+   // 3D vertical-wall reflection: cx = vg cos(theta) flips when
+   // theta -> π - theta. Polar GL nodes are symmetric about π/2 so the
+   // partner is the polar index reflected within the polar bank.
+   const int jp = angle / azimuthal_count_;
+   const int ja = angle - jp * azimuthal_count_;
+   return (polar_count_ - 1 - jp) * azimuthal_count_ + ja;
 }
 
 double AngularQuadrature::SumWeights() const

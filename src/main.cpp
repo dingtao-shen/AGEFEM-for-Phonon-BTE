@@ -267,10 +267,15 @@ int main(int argc, char **argv)
                                                               output_moments,
                                                               result.steps,
                                                               static_cast<double>(result.steps));
+            const std::filesystem::path csv_path =
+               WithSuffix(config.files.output_prefix, "_cells.csv");
+            callaway::OutputManager::WriteCellAveragesCsv(csv_path, mesh, integration,
+                                                          output_moments);
             std::cout << "  output field: " << field_path << "\n";
             std::cout << "  output residual: " << residual_path << "\n";
             std::cout << "  output reference: " << reference_path << "\n";
             std::cout << "  output paraview: " << paraview_path << "\n";
+            std::cout << "  output cells csv: " << csv_path << "\n";
          }
       }
       else

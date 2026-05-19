@@ -104,6 +104,76 @@ KineticSweepSolver::KineticSweepSolver(const MeshAdapter &mesh,
    }
    has_diffuse_straight_face_ = !straight_diffuse_to_elem_lf_.empty();
 
+   // Straight specular boundary face mapping (Symmetry BC).
+   straight_specular_index_.assign(
+      static_cast<std::size_t>(integration_.element_count()) * 3, -1);
+   for (int e = 0; e < integration_.element_count(); ++e)
+   {
+      for (int lf = 0; lf < 3; ++lf)
+      {
+         if (integration_.IsCurvedFace(e, lf)) { continue; }
+         if (mesh_.ElementNeighbor(e, lf) >= 0) { continue; }
+         const int face_id = mesh_.ElementFace(e, lf);
+         const FaceData &face = mesh_.Face(face_id);
+         if (face.boundary_attribute <= 0) { continue; }
+         const BoundaryCondition &bc = BoundaryForAttribute(face.boundary_attribute);
+         if (bc.type != BoundaryType::Symmetry) { continue; }
+         straight_specular_index_[static_cast<std::size_t>(e * 3 + lf)] =
+            static_cast<int>(straight_specular_to_elem_lf_.size());
+         straight_specular_to_elem_lf_.push_back({e, lf});
+      }
+   }
+   has_specular_straight_face_ = !straight_specular_to_elem_lf_.empty();
+
+   // Straight periodic boundary face mapping (Periodic BC). Each periodic
+   // face must have an active $Periodic partner in the mesh adapter; the
+   // partner element is cached for sweep-time inflow buffer assembly.
+   straight_periodic_index_.assign(
+      static_cast<std::size_t>(integration_.element_count()) * 3, -1);
+   for (int e = 0; e < integration_.element_count(); ++e)
+   {
+      for (int lf = 0; lf < 3; ++lf)
+      {
+         if (integration_.IsCurvedFace(e, lf)) { continue; }
+         if (mesh_.ElementNeighbor(e, lf) >= 0) { continue; }
+         const int face_id = mesh_.ElementFace(e, lf);
+         const FaceData &face = mesh_.Face(face_id);
+         if (face.boundary_attribute <= 0) { continue; }
+         const BoundaryCondition &bc = BoundaryForAttribute(face.boundary_attribute);
+         if (bc.type != BoundaryType::Periodic) { continue; }
+         const PeriodicFacePair *pair = mesh_.PeriodicPartner(face_id);
+         if (pair == nullptr || pair->partner_element < 0)
+         {
+            std::ostringstream os;
+            os << "Periodic boundary tag " << face.boundary_attribute
+               << " is missing a paired partner face. Check the Gmsh $Periodic "
+               << "section: the slave/master node lists must cover this face.";
+            throw std::runtime_error(os.str());
+         }
+         straight_periodic_index_[static_cast<std::size_t>(e * 3 + lf)] =
+            static_cast<int>(straight_periodic_to_elem_lf_.size());
+         straight_periodic_to_elem_lf_.push_back({e, lf});
+         straight_periodic_partner_element_.push_back(pair->partner_element);
+      }
+   }
+   has_periodic_straight_face_ = !straight_periodic_to_elem_lf_.empty();
+
+   // For each angle, precompute the cx-flip partner index used by vertical-
+   // wall specular reflection. The mapping depends on the angular mode:
+   //   3D: partner is the polar-reflected index in the same azimuth.
+   //   2D: partner is the phi-reflected index inside its half-circle.
+   // AngularQuadrature::CxFlipPartner encapsulates both.
+   if (has_specular_straight_face_)
+   {
+      const int n_total = quadrature_.size();
+      vertical_specular_partner_angle_.assign(static_cast<std::size_t>(n_total), -1);
+      for (int a = 0; a < n_total; ++a)
+      {
+         vertical_specular_partner_angle_[static_cast<std::size_t>(a)] =
+            quadrature_.CxFlipPartner(a);
+      }
+   }
+
    if (cache_local_lu_)
    {
       BuildLocalLuCache();
@@ -264,6 +334,117 @@ void KineticSweepSolver::RefreshDiffuseWallInflow(const Distribution &distributi
    }
 }
 
+void KineticSweepSolver::RefreshSpecularInflow(const Distribution &distribution) const
+{
+   if (!has_specular_straight_face_) { return; }
+   const int n_angles = quadrature_.size();
+   const int n_sp = static_cast<int>(straight_specular_to_elem_lf_.size());
+   const int n_dofs = integration_.dofs();
+   specular_inflow_straight_.assign(
+      static_cast<std::size_t>(n_angles) * static_cast<std::size_t>(n_sp) *
+      static_cast<std::size_t>(n_dofs), 0.0);
+
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic)
+#endif
+   for (int sp = 0; sp < n_sp; ++sp)
+   {
+      const auto [elem, lf] = straight_specular_to_elem_lf_[static_cast<std::size_t>(sp)];
+      const auto normal = integration_.OutwardNormal(elem, lf);
+      const double nx = normal[0];
+      const double ny = normal[1];
+      // Only vertical walls (n_y ~= 0) are supported; horizontal / oblique
+      // walls would need their own partner-direction tables. Leave the buffer
+      // zero for unsupported orientations — the sweep call below will throw
+      // a clear error on first encounter.
+      if (std::abs(ny) > 1.0e-10) { continue; }
+
+      for (int a = 0; a < n_angles; ++a)
+      {
+         const Direction &d = quadrature_[a];
+         const double sn = d.cx * nx + d.cy * ny;
+         if (sn >= 0.0) { continue; }
+         const int partner =
+            vertical_specular_partner_angle_[static_cast<std::size_t>(a)];
+         const double inflow_speed = -sn;
+         const std::size_t base =
+            (static_cast<std::size_t>(a) * static_cast<std::size_t>(n_sp) +
+             static_cast<std::size_t>(sp)) *
+            static_cast<std::size_t>(n_dofs);
+         for (int row = 0; row < n_dofs; ++row)
+         {
+            double proj = 0.0;
+            for (int dof = 0; dof < n_dofs; ++dof)
+            {
+               proj += integration_.ElementFaceMass(elem, lf, row, dof) *
+                       distribution(partner, elem, dof);
+            }
+            specular_inflow_straight_[base + static_cast<std::size_t>(row)] =
+               inflow_speed * proj;
+         }
+      }
+   }
+}
+
+void KineticSweepSolver::RefreshPeriodicInflow(const Distribution &distribution) const
+{
+   if (!has_periodic_straight_face_) { return; }
+   const int n_angles = quadrature_.size();
+   const int n_pp = static_cast<int>(straight_periodic_to_elem_lf_.size());
+   const int n_dofs = integration_.dofs();
+   periodic_inflow_straight_.assign(
+      static_cast<std::size_t>(n_angles) * static_cast<std::size_t>(n_pp) *
+      static_cast<std::size_t>(n_dofs), 0.0);
+
+   const double inv_four_pi_cv =
+      flow_.specific_heat / quadrature_.equilibrium_normalization();
+
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic)
+#endif
+   for (int pp = 0; pp < n_pp; ++pp)
+   {
+      const auto [elem, lf] = straight_periodic_to_elem_lf_[static_cast<std::size_t>(pp)];
+      const int partner =
+         straight_periodic_partner_element_[static_cast<std::size_t>(pp)];
+      const auto normal = integration_.OutwardNormal(elem, lf);
+      const double nx = normal[0];
+      const double ny = normal[1];
+      const int face_id = mesh_.ElementFace(elem, lf);
+      const FaceData &face = mesh_.Face(face_id);
+      const BoundaryCondition &bc = BoundaryForAttribute(face.boundary_attribute);
+      // ΔT_bc = T_self - T_partner: inflow energy density is shifted by
+      // Cv * ΔT_bc / (4π) relative to the partner cell value when crossing
+      // the periodic interface.
+      const double delta_offset = inv_four_pi_cv * bc.temperature;
+
+      for (int a = 0; a < n_angles; ++a)
+      {
+         const Direction &d = quadrature_[a];
+         const double sn = d.cx * nx + d.cy * ny;
+         if (sn >= 0.0) { continue; }
+         const double inflow_speed = -sn;
+         const std::size_t base =
+            (static_cast<std::size_t>(a) * static_cast<std::size_t>(n_pp) +
+             static_cast<std::size_t>(pp)) *
+            static_cast<std::size_t>(n_dofs);
+         for (int row = 0; row < n_dofs; ++row)
+         {
+            double partner_proj = 0.0;
+            for (int col = 0; col < n_dofs; ++col)
+            {
+               partner_proj += integration_.NeighborFaceMass(elem, lf, row, col) *
+                               distribution(a, partner, col);
+            }
+            periodic_inflow_straight_[base + static_cast<std::size_t>(row)] =
+               inflow_speed * partner_proj +
+               inflow_speed * delta_offset *
+                  integration_.ElementFaceIntegral(elem, lf, row);
+         }
+      }
+   }
+}
+
 void KineticSweepSolver::Sweep(const MomentFields &moments,
                                Distribution &distribution) const
 {
@@ -283,7 +464,8 @@ void KineticSweepSolver::Sweep(const MomentFields &moments,
    const double inv_tau_c = 1.0 / flow_.tau_combined();
    const double inv_tau_r = 1.0 / flow_.tau_r;
    const double inv_tau_n = 1.0 / flow_.tau_n;
-   const double four_pi = 4.0 * Pi;
+   const double four_pi = quadrature_.equilibrium_normalization();
+   const double moment_factor = quadrature_.moment_factor();
    const double vg2 = flow_.group_velocity * flow_.group_velocity;
 
 #ifdef _OPENMP
@@ -316,7 +498,7 @@ void KineticSweepSolver::Sweep(const MomentFields &moments,
                   flow_.specific_heat * t / four_pi * inv_tau_r;
                const double normal_source =
                   (flow_.specific_heat * t / four_pi +
-                   3.0 * q_dot_c / (four_pi * vg2)) * inv_tau_n;
+                   moment_factor * q_dot_c / (four_pi * vg2)) * inv_tau_n;
                rhs[static_cast<std::size_t>(row)] +=
                   (resistive_source + normal_source) *
                   integration_.Mass(element, row, col);
@@ -389,7 +571,7 @@ const BoundaryCondition &KineticSweepSolver::BoundaryForAttribute(int attribute)
 
 double KineticSweepSolver::ThermalizingInflowValue(const BoundaryCondition &bc) const
 {
-   return flow_.specific_heat * bc.temperature / (4.0 * Pi);
+   return flow_.specific_heat * bc.temperature / quadrature_.equilibrium_normalization();
 }
 
 void KineticSweepSolver::AssembleLocalMatrix(int angle,
@@ -586,13 +768,67 @@ void KineticSweepSolver::AddBoundaryInflow(int angle,
          }
          break;
       }
-      case BoundaryType::Periodic:
       case BoundaryType::Symmetry:
       {
-         std::ostringstream os;
-         os << "Boundary type '" << ToString(bc.type)
-            << "' is not yet implemented for straight boundary faces.";
-         throw std::runtime_error(os.str());
+         // Specular reflection. The partner angle (cx-flip for vertical
+         // walls) was identified at construction; the precomputed buffer
+         // already carries inflow_speed * <face mass projection of the
+         // partner-direction distribution>.
+         const int sp =
+            straight_specular_index_[static_cast<std::size_t>(element * 3 + local_face)];
+         if (sp < 0)
+         {
+            throw std::runtime_error(
+               "KineticSweepSolver: Symmetry straight boundary face was not "
+               "registered for specular reflection during construction.");
+         }
+         const auto normal = integration_.OutwardNormal(element, local_face);
+         if (std::abs(normal[1]) > 1.0e-10)
+         {
+            throw std::runtime_error(
+               "KineticSweepSolver: specular reflection on non-vertical walls "
+               "is not yet implemented.");
+         }
+         const int n_sp = static_cast<int>(straight_specular_to_elem_lf_.size());
+         const int n_dofs = integration_.dofs();
+         const std::size_t base =
+            (static_cast<std::size_t>(angle) * static_cast<std::size_t>(n_sp) +
+             static_cast<std::size_t>(sp)) *
+            static_cast<std::size_t>(n_dofs);
+         for (int row = 0; row < n_dofs; ++row)
+         {
+            rhs[static_cast<std::size_t>(row)] +=
+               specular_inflow_straight_[base + static_cast<std::size_t>(row)];
+         }
+         break;
+      }
+      case BoundaryType::Periodic:
+      {
+         // Periodic BC. RefreshPeriodicInflow precomputed
+         //   inflow_speed * [ NFM × dist_partner + (Cv ΔT_bc / 4π) EFI ]
+         // per (angle, periodic face, row); reading the buffer here folds
+         // both the partner-cell coupling and the ΔT thermalising-like
+         // delta into the local RHS.
+         const int pp =
+            straight_periodic_index_[static_cast<std::size_t>(element * 3 + local_face)];
+         if (pp < 0)
+         {
+            throw std::runtime_error(
+               "KineticSweepSolver: Periodic straight boundary face was not "
+               "registered for periodic coupling during construction.");
+         }
+         const int n_pp = static_cast<int>(straight_periodic_to_elem_lf_.size());
+         const int n_dofs = integration_.dofs();
+         const std::size_t base =
+            (static_cast<std::size_t>(angle) * static_cast<std::size_t>(n_pp) +
+             static_cast<std::size_t>(pp)) *
+            static_cast<std::size_t>(n_dofs);
+         for (int row = 0; row < n_dofs; ++row)
+         {
+            rhs[static_cast<std::size_t>(row)] +=
+               periodic_inflow_straight_[base + static_cast<std::size_t>(row)];
+         }
+         break;
       }
    }
    (void) inflow_speed; // already consumed in the thermalizing branch

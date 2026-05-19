@@ -122,10 +122,17 @@ std::vector<FieldSample> OutputManager::SampleConductionField(const IntegrationC
          sample.element = FindContainingElement(integration, sample.x, sample.y);
          if (sample.element < 0)
          {
-            std::ostringstream os;
-            os << "Output sample point (" << sample.x << ", " << sample.y
-               << ") is outside the mesh.";
-            throw std::runtime_error(os.str());
+            // Out-of-mesh sample (e.g. inside an annular hole). Keep the
+            // grid layout but emit zero values; downstream consumers can
+            // filter on element < 0 if they need the in-mesh region only.
+            sample.temperature = 0.0;
+            sample.heat_flux_x = 0.0;
+            sample.heat_flux_y = 0.0;
+            sample.nxx = 0.0;
+            sample.nxy = 0.0;
+            sample.nyy = 0.0;
+            samples.push_back(sample);
+            continue;
          }
 
          const auto ref = MapToReference(integration.Geometry(sample.element), sample.x, sample.y);
@@ -400,6 +407,44 @@ void OutputManager::WriteResidualHistory(const std::filesystem::path &path,
              << ',' << result.trace_final_norm_history[i];
       }
       out << '\n';
+   }
+}
+
+void OutputManager::WriteCellAveragesCsv(const std::filesystem::path &path,
+                                          const MeshAdapter &mesh_adapter,
+                                          const IntegrationCache &integration,
+                                          const MomentFields &moments)
+{
+   const mfem::Mesh &mesh = mesh_adapter.mesh();
+   const int nv = mesh.GetNV();
+   const int ne = mesh.GetNE();
+   std::ofstream out(path);
+   if (!out)
+   {
+      throw std::runtime_error("Failed to open cell-averages CSV path: " + path.string());
+   }
+   out << std::setprecision(17);
+   out << nv << ' ' << ne << '\n';
+   for (int i = 0; i < nv; ++i)
+   {
+      const double *v = mesh.GetVertex(i);
+      out << v[0] << ' ' << v[1] << '\n';
+   }
+   mfem::Array<int> verts;
+   for (int e = 0; e < ne; ++e)
+   {
+      mesh.GetElementVertices(e, verts);
+      if (verts.Size() != 3)
+      {
+         throw std::runtime_error("WriteCellAveragesCsv: non-triangular element.");
+      }
+      const double area = integration.Geometry(e).area;
+      const double inv_area = (area > 0.0) ? (1.0 / area) : 0.0;
+      const double t_avg  = moments.TemperatureCell(e) * inv_area;
+      const double qx_avg = moments.HeatFluxXCell(e)   * inv_area;
+      const double qy_avg = moments.HeatFluxYCell(e)   * inv_area;
+      out << verts[0] << ' ' << verts[1] << ' ' << verts[2] << ' '
+          << t_avg << ' ' << qx_avg << ' ' << qy_avg << '\n';
    }
 }
 

@@ -126,6 +126,9 @@ target_link_libraries(test_diffuse_straight_bc PRIVATE callaway_core)
 add_executable(test_rough_boundary tests/unit/test_rough_boundary.cpp)
 target_link_libraries(test_rough_boundary PRIVATE callaway_core)
 
+add_executable(test_periodic_bc tests/unit/test_periodic_bc.cpp)
+target_link_libraries(test_periodic_bc PRIVATE callaway_core)
+
 add_test(
   NAME config_quadrature_mesh_smoke
   COMMAND test_config_quadrature
@@ -242,4 +245,9 @@ add_test(
 add_test(
   NAME rough_boundary
   COMMAND test_rough_boundary
+)
+
+add_test(
+  NAME periodic_bc
+  COMMAND test_periodic_bc
 )

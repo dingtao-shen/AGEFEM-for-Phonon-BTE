@@ -621,7 +621,8 @@ MomentFields SyntheticAccelerationSolver::CorrectDistributionAndComputeMoments(
    }
 
    const double tau_c = flow_.tau_combined();
-   const double four_pi = 4.0 * Pi;
+   const double four_pi = quadrature_.equilibrium_normalization();
+   const double moment_factor = quadrature_.moment_factor();
    const double vg2 = flow_.group_velocity * flow_.group_velocity;
    MomentFields fields(integration_.element_count(), integration_.dofs());
 
@@ -658,7 +659,7 @@ MomentFields SyntheticAccelerationSolver::CorrectDistributionAndComputeMoments(
             distribution(angle, element, dof) +=
                d_temperature * flow_.specific_heat / four_pi +
                (direction.cx * d_heat_flux_x + direction.cy * d_heat_flux_y) *
-                  tau_c / flow_.tau_n * 3.0 / (four_pi * vg2);
+                  tau_c / flow_.tau_n * moment_factor / (four_pi * vg2);
          }
 
          fields.TemperatureDof(element, dof) = temperature_vdf + d_temperature;

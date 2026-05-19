@@ -68,6 +68,20 @@ public:
 
    static void WriteResidualHistory(const std::filesystem::path &path,
                                     const IterationResult &result);
+
+   // Compact CSV-like output for plotting from Python: writes the mesh
+   // topology (vertices + triangle vertex indices) and per-element averaged
+   // temperature, heat flux. Header line is "n_vertices n_elements", then
+   // n_vertices lines of "x y", then n_elements lines of
+   // "v0 v1 v2 T qx qy" (cell-averaged values).
+   //
+   // Cell averages are computed as ∫ field dV / element_area. For AGE
+   // elements the element_area is the curved-geometry area from
+   // IntegrationCache::Geometry, so the averages are correct for AGE meshes.
+   static void WriteCellAveragesCsv(const std::filesystem::path &path,
+                                    const MeshAdapter &mesh_adapter,
+                                    const IntegrationCache &integration,
+                                    const MomentFields &moments);
 };
 
 } // namespace callaway
