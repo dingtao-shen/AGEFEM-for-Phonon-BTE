@@ -236,7 +236,15 @@ def parse_msh_curved_edges(msh_path: Path) -> dict:
    return edges
 
 
-def draw_arc(ax, center, radius, va, vb, color, linewidth, alpha=1.0, n=24):
+# Z-order layering. Contours sit at the bottom, then the pore mask
+# (white-filled chord polygon or exact circle), then the mesh edges on
+# top so the boundary edges remain visible.
+ZORDER_MASK = 2.0
+ZORDER_MESH = 3.0
+
+
+def draw_arc(ax, center, radius, va, vb, color, linewidth, alpha=1.0, n=24,
+             zorder=ZORDER_MESH):
    """Draw the short arc between physical points va and vb on the circle
       of given centre and radius."""
    cx, cy = center
@@ -250,15 +258,22 @@ def draw_arc(ax, center, radius, va, vb, color, linewidth, alpha=1.0, n=24):
    thetas = np.linspace(theta_a, theta_a + delta, n)
    ax.plot(cx + radius * np.cos(thetas),
            cy + radius * np.sin(thetas),
-           color=color, linewidth=linewidth, alpha=alpha)
+           color=color, linewidth=linewidth, alpha=alpha, zorder=zorder)
 
 
-def plot_mesh(ax, verts, tris, curved_edges, *, color="0.25", linewidth=0.25,
-              alpha=0.7):
-   """Draw the mesh edges. For each undirected triangle edge that appears
-      in curved_edges, render it as a true arc on the underlying pore
-      circle; all other edges are straight chords. Each edge is drawn
-      exactly once."""
+def plot_mesh(ax, verts, tris, curved_edges, pore_tag_edges, *,
+              color="0.25", linewidth=0.25, alpha=0.7,
+              boundary_color="0.0", boundary_linewidth=0.9,
+              boundary_alpha=1.0, zorder=ZORDER_MESH):
+   """Draw the mesh edges. Interior edges and ordinary boundary edges
+      use the thin (color, linewidth, alpha) style. Edges whose
+      undirected key appears in pore_tag_edges (boundary edges sitting
+      on a curved pore tag) are emphasised with the thicker
+      (boundary_color, boundary_linewidth) style — straight chords for
+      SMBDG, true arcs for AGEDG (when the same edge key also appears
+      in curved_edges).
+
+      Each undirected edge is drawn exactly once."""
    drawn = set()
    for tri in tris:
       for i in range(3):
@@ -270,13 +285,53 @@ def plot_mesh(ax, verts, tris, curved_edges, *, color="0.25", linewidth=0.25,
          drawn.add(key)
          va = verts[va_idx]
          vb = verts[vb_idx]
+         is_pore_edge = key in pore_tag_edges
+         use_color = boundary_color if is_pore_edge else color
+         use_lw    = boundary_linewidth if is_pore_edge else linewidth
+         use_alpha = boundary_alpha if is_pore_edge else alpha
          if key in curved_edges:
             cinfo = CURVE_BY_TAG[curved_edges[key]]
             draw_arc(ax, cinfo["center"], cinfo["radius"], va, vb,
-                     color=color, linewidth=linewidth, alpha=alpha)
+                     color=use_color, linewidth=use_lw, alpha=use_alpha,
+                     zorder=zorder)
          else:
             ax.plot([va[0], vb[0]], [va[1], vb[1]],
-                    color=color, linewidth=linewidth, alpha=alpha)
+                    color=use_color, linewidth=use_lw, alpha=use_alpha,
+                    zorder=zorder)
+
+
+def mask_pores_polygonal(ax, verts, curved_edges):
+   """Mask pore interiors with the **chord polygon** of each pore. This
+      preserves the polygonal SMBDG boundary as the visible interface
+      between coloured domain and white pore — so the polygon's corners
+      (the chord-edge geometric approximation error) remain visible
+      once the mesh layer is drawn on top."""
+   tag_to_verts: dict = {}
+   for edge_key, tag in curved_edges.items():
+      for v in edge_key:
+         tag_to_verts.setdefault(tag, set()).add(v)
+   for tag, vset in tag_to_verts.items():
+      cinfo = CURVE_BY_TAG[tag]
+      cx, cy = cinfo["center"]
+      ordered = sorted(
+         vset,
+         key=lambda v: math.atan2(verts[v][1] - cy, verts[v][0] - cx),
+      )
+      poly_x = [verts[v][0] for v in ordered]
+      poly_y = [verts[v][1] for v in ordered]
+      ax.fill(poly_x, poly_y, color="white", zorder=ZORDER_MASK)
+
+
+def mask_pores_circular(ax):
+   """Mask pore interiors with the **exact circle** of each pore — the
+      AGE arc that bounds an AGE element. The visible boundary is the
+      smooth arc with no geometric error."""
+   theta = np.linspace(0, 2 * math.pi, 200)
+   for c in CURVES:
+      cx, cy = c["center"]
+      r = c["radius"]
+      ax.fill(cx + r * np.cos(theta), cy + r * np.sin(theta),
+              color="white", zorder=ZORDER_MASK)
 
 
 def main() -> None:
@@ -320,10 +375,17 @@ def main() -> None:
 
    fig, axes = plt.subplots(1, 2, figsize=(12, 5.5))
 
-   for ax, verts, tris, Tcell, curved_edges, label in (
-      (axes[0], v_s, t_s, T_s, {},        # SMBDG: straight polygon chords on pores
+   for ax, verts, tris, Tcell, mesh_curved_edges, pore_mask_kind, label in (
+      # SMBDG: chord polygon is the actual boundary of the SMBDG domain;
+      # show its corners by masking with the polygon, and draw all
+      # element edges (including the chord pore boundary) as straight
+      # lines.
+      (axes[0], v_s, t_s, T_s, smb_curved, "polygon",
        f"SMBDG  /  {len(t_s)} elements (dense straight-sided mesh)"),
-      (axes[1], v_a, t_a, T_a, age_curved,  # AGEDG: AGE elements on curved tags
+      # AGEDG: AGE arc is the actual boundary of each AGE element; mask
+      # with the exact circle so the smooth arc is the visible
+      # interface, and draw the curved-tag mesh edges as true arcs.
+      (axes[1], v_a, t_a, T_a, age_curved, "circle",
        f"AGEDG  /  {len(t_a)} elements (sparse AGE mesh)"),
    ):
       tri = mtri.Triangulation(verts[:, 0], verts[:, 1], tris)
@@ -331,21 +393,25 @@ def main() -> None:
       im = ax.tricontourf(tri, v_vals, levels=levels, cmap="coolwarm", extend="both")
       ax.tricontour(tri, v_vals, levels=levels,
                     colors="k", linewidths=0.4, alpha=0.55)
-      # Mask the pore interior with white-filled discs. Each pore's true
-      # boundary is the circle of given centre and radius; for AGEDG that
-      # circle is the AGE arc, and for SMBDG it is the analytic pore the
-      # mesh's polygonal chord approximates. The white disc covers the
-      # chord-arc lens area where tricontourf would otherwise bleed past
-      # the curved boundary.
-      theta_pore = np.linspace(0, 2 * math.pi, 200)
-      for c in CURVES:
-         cx, cy = c["center"]
-         r = c["radius"]
-         ax.fill(cx + r * np.cos(theta_pore),
-                 cy + r * np.sin(theta_pore),
-                 color="white", zorder=2.5)
-      plot_mesh(ax, verts, tris, curved_edges,
-                color="0.2", linewidth=0.25, alpha=0.55)
+      # Mask pore interior. SMBDG uses the chord polygon (so the
+      # polygonal approximation's corners are visible); AGEDG uses the
+      # exact circle (so the AGE arc is visible).
+      if pore_mask_kind == "polygon":
+         mask_pores_polygonal(ax, verts, mesh_curved_edges)
+      else:
+         mask_pores_circular(ax)
+      # Draw the mesh on top. SMBDG renders pore-boundary edges as
+      # straight chords (curved_edges = {}) so the polygonal
+      # approximation is visible; AGEDG renders them as true arcs (the
+      # AGE element's curved edge). In both cases we mark those edges
+      # as pore-boundary so they're drawn with the thicker emphasis
+      # style, making the polygonal-vs-arc distinction obvious.
+      plot_mesh(ax, verts, tris,
+                {} if pore_mask_kind == "polygon" else mesh_curved_edges,
+                mesh_curved_edges,
+                color="0.4", linewidth=0.2, alpha=0.5,
+                boundary_color="0.0", boundary_linewidth=1.0,
+                boundary_alpha=1.0)
       ax.set_aspect("equal")
       ax.set_title(label)
       plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04,

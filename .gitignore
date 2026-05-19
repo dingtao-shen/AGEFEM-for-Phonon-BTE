@@ -1,6 +1,5 @@
 build/
 build-*/
-output/
 __pycache__/
 *.pyc
 *.dat

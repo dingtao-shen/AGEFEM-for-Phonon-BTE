@@ -1,0 +1,27 @@
+version: 1
+curves:
+  - boundary_id: 1
+    type: circular_arc
+    center: [0.5, -1.0]
+    radius: 0.25
+    orientation: cw
+  - boundary_id: 5
+    type: circular_arc
+    center: [0.5, 1.0]
+    radius: 0.25
+    orientation: cw
+  - boundary_id: 9
+    type: circular_arc
+    center: [-0.5, -0.5]
+    radius: 0.25
+    orientation: cw
+  - boundary_id: 10
+    type: circular_arc
+    center: [-0.5, 0.5]
+    radius: 0.1
+    orientation: cw
+  - boundary_id: 11
+    type: circular_arc
+    center: [0.5, 0.0]
+    radius: 0.1
+    orientation: cw

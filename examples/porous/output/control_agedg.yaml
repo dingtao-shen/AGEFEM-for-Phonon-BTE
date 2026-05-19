@@ -1,0 +1,77 @@
+iteration:
+  tolerance: 5.0e-5
+  max_steps: 20000
+
+gsis:
+  enabled: false
+
+velocity_mesh:
+  polar_angles: 1
+  azimuthal_angles: 40
+
+dg:
+  order: 3
+
+flow:
+  specific_heat: 1.0
+  group_velocity: 1.0
+  tau_r: 0.01
+  tau_n: 0.01
+  tau_threshold: 1.0
+
+age:
+  curved_face_tensors: precomputed
+  edge_quadrature_points: 10
+  area_quadrature_points: 10
+
+files:
+  mesh: ../porous_2.msh
+  geometry: porous.age.yaml
+  output_prefix: agedg_porous
+  output_samples: 109
+
+boundary_conditions:
+  - name: Hole1
+    physical_id: 1
+    type: non_thermalizing
+    temperature: 0.0
+  - name: Hole5
+    physical_id: 5
+    type: non_thermalizing
+    temperature: 0.0
+  - name: Hole9
+    physical_id: 9
+    type: non_thermalizing
+    temperature: 0.0
+  - name: Hole10
+    physical_id: 10
+    type: non_thermalizing
+    temperature: 0.0
+  - name: Hole11
+    physical_id: 11
+    type: non_thermalizing
+    temperature: 0.0
+  - name: Side3
+    physical_id: 3
+    type: symmetry
+    temperature: 0.0
+  - name: Side7
+    physical_id: 7
+    type: symmetry
+    temperature: 0.0
+  - name: Side2
+    physical_id: 2
+    type: periodic
+    temperature: -1.0
+  - name: Side8
+    physical_id: 8
+    type: periodic
+    temperature: -1.0
+  - name: Side4
+    physical_id: 4
+    type: periodic
+    temperature: 1.0
+  - name: Side6
+    physical_id: 6
+    type: periodic
+    temperature: 1.0
